@@ -43,7 +43,7 @@ test('独立被动冷却、守护触发条件、唯一主动和暂停', () => {
   assert.equal(b.releaseNova(), false)
   b.choose(999)
   assert.equal(b.phase, 'upgrade')
-  assert.equal(new Set(b.choices).size, 3)
+  assert.equal(new Set(b.choices).size, 6)
   b.choose(b.choices[0])
   assert.equal(b.phase, 'play')
 })

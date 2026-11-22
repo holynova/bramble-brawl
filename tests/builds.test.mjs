@@ -35,9 +35,9 @@ function specialize(b, key) {
   assert.ok(b.growthChoices().every((v) => !isMastery(v)))
 }
 
-test('六职业和十二被动可自由搭配，推荐配装激活对应流派，收藏保留高编号英雄和技能', () => {
+test('六职业和十八被动可自由搭配，推荐配装激活对应流派，收藏保留高编号英雄和技能', () => {
   assert.equal(heroes.length, 6)
-  assert.equal(spells.length, 12)
+  assert.equal(spells.length, 18)
   assert.deepEqual([0, 1, 2, 3, 4, 5].map(actorTexture), [
     'anim-0',
     'anim-1',

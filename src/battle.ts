@@ -1,3 +1,4 @@
+import { deviceArt } from './forging.ts'
 import Phaser from 'phaser'
 import { FRAME_SIZE, FOOTLINE, unitFrame, defeatFrame } from './poses.ts'
 import { art, Evo } from './data.ts'
@@ -106,6 +107,7 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
       this.load.image('arena', art(terrain))
       const manifest = [
         'nova-wave',
+        ...Array.from({length:6},(_,i)=>'relic-'+i),
         ...Array.from({ length: 6 }, (_, i) => 'kit-' + i),
         ...Array.from({ length: 6 }, (_, i) => 'fx-' + i),
         ...Array.from({ length: 6 }, (_, i) => 'evo-fx-' + i),
@@ -493,15 +495,39 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
             crack[1].y + dx * 14,
           )
         } else {
-          const texture = s.style === 8 ? 'evo-fx-1' : s.style === 10 ? 'evo-fx-4' : 'fx-5'
+          const texture = s.style >= 18 ? 'relic-4' : s.style === 16 || s.style === 17 ? 'evo-fx-1' : s.style === 8 ? 'evo-fx-1' : s.style === 10 ? 'evo-fx-4' : 'fx-5'
           this.overlay(active, 's' + s.id, texture, x, y, s.style === 8 ? 21 : 27, 1850).setRotation(
-            Math.atan2(s.vy, s.vx),
+            Math.atan2(s.vy, s.vx) + (s.style>=18 ? .75 : 0),
           )
           if (s.style === 8 || s.style === 10) {
             const color = s.style === 8 ? 0xb6ff51 : 0xffcf49
             G.lineStyle(3, color, 0.9).lineBetween(x - s.vx * 0.03, y - s.vy * 0.03, x, y)
           }
         }
+      }
+      for (const d of sim.foundry.constructs) {
+        const id='forge'+d.id, kind=d.kind, palette=kind==='fire'||kind==='star'?0xffa14a:kind==='frost'||kind==='mine'?0x91eaff:0xbcb1ff
+        if(kind==='trail')continue
+        if(kind==='wire'){
+          const x=Math.cos(d.angle)*82,y=Math.sin(d.angle)*82
+          this.overlay(active,id+'a','kit-5',d.x-x,d.y-y-8,22,d.y-y+2)
+          this.overlay(active,id+'b','kit-5',d.x+x,d.y+y-8,22,d.y+y+2)
+          G.lineStyle(3,0xa49bff,.88).lineBetween(d.x-x,d.y-y-12,d.x+x,d.y+y-12);continue
+        }
+        if(kind==='fire'||kind==='frost'||kind==='star'){
+          const r=kind==='frost'?63:kind==='star'?43:31
+          this.shadows.fillStyle(palette,.19).fillEllipse(d.x,d.y,r*2,r*1.4)
+          this.shadows.lineStyle(2,palette,.78).strokeEllipse(d.x,d.y,r*2,r*1.4)
+        }
+        if(kind==='tower'){
+          this.actor(active,id,'anim-7',d.x,d.y,39,1,0,d.tick>.63?10:1);continue
+        }
+        const tex=deviceArt[kind]
+        if(!tex)continue
+        const airborne=kind==='star'?Math.max(0,1-d.age/d.life)*70:kind==='bee'||kind==='lamp'?22:kind==='plague'?45:8
+        const width=kind==='sun'?85:kind==='decoy'?50:kind==='plague'?18:kind==='star'?31:33
+        const obj=this.overlay(active,id,tex,d.x,d.y-airborne,width,kind==='plague'?1900:d.y+18)
+        obj.setAlpha(kind==='decoy'?.8:1).setRotation(kind==='moon'||kind==='sun'?t*(motion?8:0):0)
       }
       for (const d of sim.arsenal.devices) {
         const id = 'kit' + d.id

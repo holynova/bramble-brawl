@@ -86,6 +86,7 @@ export const passiveSchools: School[][] = [
   ['fort'],
   ['frost'],
   ['arc'],
+  ['wind'], ['fire'], ['hex'], ['fort'], ['frost'], ['arc'],
 ]
 export function schoolCount(key: School, hero: number, deck: number[]) {
   return (

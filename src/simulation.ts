@@ -1,4 +1,6 @@
 import { isMastery, masteries, masteryStart, traditions } from './builds.ts'
+import { Foundry } from './forging.ts'
+import { blueprints, pathsFor, promotion, signature, trackName, recruitStart, forkStart, isRecruit, isFork, forkId, forkTrack, battleSlots } from './forge.ts'
 import { Arsenal } from './arsenal.ts'
 import type { Strike } from './poses.ts'
 import {
@@ -6,15 +8,12 @@ import {
   heroes,
   spells,
   Evo,
-  heroEvolution,
   spellEvolution,
   nova,
   waveNames,
   weaponTraining,
   passiveTraining,
   maxRank,
-  awakeningRank,
-  isEvolution,
   upgrades,
 } from './data.ts'
 import type { Profile } from './data.ts'
@@ -121,6 +120,7 @@ function separate(p: Point, radius: number) {
   p.y = limit(p.y, 80, WORLD.h - 80)
 }
 export class Battle {
+  foundry: Foundry
   arsenal: Arsenal
   hero: number
   contract: number
@@ -174,6 +174,7 @@ export class Battle {
   magnet = 100
   spawnClock = 1
   choices: number[] = []
+  goal?: { track:number; side:number }
   enemies: Enemy[] = []
   shots: Shot[] = []
   drops: Drop[] = []
@@ -186,6 +187,7 @@ export class Battle {
     this.contract = profile.contract
     this.deck = [...profile.deck]
     this.arsenal = new Arsenal(this)
+    this.foundry = new Foundry(this)
     this.deck.forEach((key, slot) => {
       this.passiveTimers[key] = 2 + slot * 1.65
     })
@@ -269,6 +271,7 @@ export class Battle {
       face: e.face,
       at: this.age,
     })
+    this.foundry.onDeath(e)
     this.arsenal.onDeath(e)
     this.kills++
     this.coins += e.elite ? 6 : this.kills % 3 === 0 ? 1 : 0
@@ -325,7 +328,7 @@ export class Battle {
       life: style === 9 ? 0.88 : style === 10 ? 0.55 : 1.05,
       damage,
       style,
-      pierce: style === 0 ? 2 : style === 13 ? 4 : style === 9 ? 75 : 1,
+      pierce: style >= 18 && style <= 20 ? 3 : style === 0 ? 2 : style === 13 ? 4 : style === 9 ? 75 : 1,
       hit: exclude,
     })
   }
@@ -392,8 +395,8 @@ export class Battle {
     if (this.phase !== 'play' || !this.deck.includes(key) || this.passiveTimers[key] > 0) return false
     const p = this.player
     const range = key === 5 ? 88 : key === 3 ? 145 : 390
-    const target = point ?? this.nearby(p, range)[0]
-    const deploysWithoutTarget = key === 0 || key === 6 || key === 7 || key === 9 || key === 10
+    const target = point ?? this.foundry.selectTarget(key+1,this.nearby(p, range))
+    const deploysWithoutTarget = key === 0 || key === 6 || key === 7 || key === 9 || key === 10 || key === 12 || key === 13 || key === 17
     if (!target && !deploysWithoutTarget) return false
     const origin = deploysWithoutTarget || key === 3 || key === 5 ? (point ?? p) : target!
     const at = { x: limit(origin.x, 85, WORLD.w - 85), y: limit(origin.y, 85, WORLD.h - 85) }
@@ -437,7 +440,10 @@ export class Battle {
         e.y += ((e.y - p.y) * 48) / d
       }
       this.effect('heal', p, 0xffd45b, 3)
-    } else this.arsenal.newPassive(key, at, power)
+    } else if (key >= 12) this.foundry.relic(key, target ?? at, power)
+    else this.arsenal.newPassive(key, at, power)
+    const aim = target ?? at
+    this.foundry.onUse(key+1,aim,Math.atan2(aim.y-p.y,aim.x-p.x))
     this.arsenal.onPassive()
     return true
   }
@@ -463,20 +469,70 @@ export class Battle {
     this.effect('hurt', p, 0xff654d, amount)
     if (!p.hp) this.phase = 'lost'
   }
-  choose(index: number) {
-    if (this.phase !== 'upgrade' || !this.choices.includes(index)) return
-    if (isMastery(index)) this.arsenal.mastery = traditions[index - masteryStart].key
-    if (isEvolution(index)) this.evolutions.add(index)
-    if (index === weaponTraining) {
-      this.weaponRank++
-      this.damage *= 1.22
-      this.rate *= 0.95
-    }
-    if (index >= passiveTraining && index < passiveTraining + spells.length) {
-      const key = index - passiveTraining,
-        old = this.passiveCooldown(key)
-      this.passiveRanks[key]++
-      this.passiveTimers[key] *= this.passiveCooldown(key) / old
+  rankOf(track:number){return track===0?this.weaponRank:this.passiveRanks[track-1]}
+  trackChoices(track:number):number[]{
+    const rank=this.rankOf(track)
+    if(rank>=maxRank)return []
+    if(rank===2)return [forkId(track,0),forkId(track,1)]
+    return [track===0?weaponTraining:passiveTraining+track-1]
+  }
+  goalPick(){
+    if(!this.goal)return
+    const {track,side}=this.goal
+    if(track&&!this.deck.includes(track-1))return recruitStart+track-1
+    const choices=this.trackChoices(track)
+    return choices.length===2?choices[side]:choices[0]
+  }
+  pinGoal(track:number,side:number){
+    if(this.phase!=='upgrade'||!Number.isInteger(track)||track<0||track>spells.length||(side!==0&&side!==1))return false
+    const owned=!track||this.deck.includes(track-1),path=this.foundry.paths.get(track)
+    if(owned&&(this.rankOf(track)>=maxRank||(path!==undefined&&path!==pathsFor(this.hero,track)[side])))return false
+    this.goal={track,side}
+    this.choices=this.goalFirst(this.choices)
+    return true
+  }
+  private goalFirst(picks:number[]){
+    const pinned=this.goalPick()
+    if(pinned===undefined)return picks
+    const sameTrack=(id:number)=>isFork(id)&&isFork(pinned)&&forkTrack(id)===forkTrack(pinned)
+    return [pinned,...picks.filter(id=>id!==pinned&&!sameTrack(id))].slice(0,6)
+  }
+  availableGrowth(){
+    const owned=[0,...this.deck.map(k=>k+1)].flatMap(track=>this.trackChoices(track))
+    const recruits=spells.flatMap((_,k)=>this.deck.includes(k)?[]:[recruitStart+k])
+    const mastery=this.level>=6&&this.level%3===0&&!this.arsenal.mastery
+      ?traditions.flatMap((t,i)=>this.arsenal.schools.has(t.key)?[masteryStart+i]:[]):[]
+    return [...owned,...recruits,...mastery]
+  }
+  choose(index:number,replace?:number){
+    if(this.phase!=='upgrade')return false
+    if(index<6 ? !this.choices.includes(index) : !this.availableGrowth().includes(index))return false
+    if(isRecruit(index)){
+      const key=index-recruitStart
+      if(this.deck.length>=battleSlots){
+        if(replace===undefined||!this.deck.includes(replace))return false
+        if(this.goal?.track===replace+1)this.goal=undefined
+        this.foundry.remove(replace+1)
+        this.evolutions.delete(spellEvolution[replace])
+        this.passiveRanks[replace]=1
+        this.deck[this.deck.indexOf(replace)]=key
+      }else this.deck.push(key)
+      this.passiveRanks[key]=1;this.passiveTimers[key]=.6;this.passiveUses[key]=0
+      this.arsenal.refreshSchools()
+    }else if(isMastery(index)){
+      this.arsenal.mastery=traditions[index-masteryStart].key
+    }else if(index>=weaponTraining){
+      const track=isFork(index)?forkTrack(index):index-weaponTraining
+      const rank=this.rankOf(track)+1
+      if(isFork(index)){const side=(index-forkStart)%2;this.foundry.paths.set(track,pathsFor(this.hero,track)[side]);if(this.goal?.track===track)this.goal.side=side}
+      if(rank===5&&this.goal?.track===track)this.goal=undefined
+      if(rank===2)this.evolutions.add(signature(this.hero,track))
+      if(track===0){this.weaponRank=rank;this.damage*=1.14;this.rate*=.97}
+      else {
+        const key=track-1,old=this.passiveCooldown(key)
+        this.passiveRanks[key]=rank
+        this.passiveTimers[key]*=this.passiveCooldown(key)/old
+      }
     }
     if (index === 0) this.damage *= 1.22
     if (index === 1) this.rate = Math.max(0.15, this.rate * 0.88)
@@ -498,68 +554,41 @@ export class Battle {
     this.choices = []
     this.phase = 'play'
     this.player.invuln = Math.max(this.player.invuln, 0.6)
+    return true
   }
   upgradeInfo(id: number) {
     if (isMastery(id)) {
       const tradition = traditions[id - masteryStart]
       return { ...masteries[tradition.key], source: tradition.name + ' · 本局唯一专精', color: tradition.color }
     }
-    if (id === weaponTraining)
-      return {
-        name: heroes[this.hero].passive,
-        desc: '武器伤害提高 22%，攻击间隔缩短 5%。',
-        source: '武器 · ' + this.weaponRank + ' → ' + (this.weaponRank + 1) + ' 阶',
-        color: heroes[this.hero].color,
-        art: 'face-' + this.hero,
-      }
-    if (id >= passiveTraining) {
-      const k = id - passiveTraining,
-        rank = this.passiveRanks[k],
-        evo = this.evolutions.has(spellEvolution[k])
-      return {
-        name: evo ? upgrades[spellEvolution[k]].name : spells[k].name,
-        desc:
-          '增强被动威力，基础冷却再缩短 ' +
-          Number((spells[k].cooldown * 0.055 * this.cooldownScale).toFixed(1)) +
-          ' 秒。',
-        source: '被动 · ' + rank + ' → ' + (rank + 1) + ' 阶',
-        art: evo ? upgrades[spellEvolution[k]].art : 'spell-' + k,
-        color: spells[k].color,
-      }
+    if(isRecruit(id)){
+      const k=id-recruitStart,v=spells[k]
+      return {name:v.name,desc:v.desc,source:'研习新被动 · Ⅰ阶',color:v.color,art:'spell-'+k}
+    }
+    if(isFork(id)){
+      const track=forkTrack(id),path=blueprints[pathsFor(this.hero,track)[(id-forkStart)%2]]
+      return {name:path.name, desc:path.start, source:trackName(this.hero,track)+' · Ⅲ阶分支',color:'#f2ca74',art:path.art}
+    }
+    if(id>=weaponTraining && id<passiveTraining+spells.length){
+      const track=id-weaponTraining
+      return promotion(this.hero,track,this.rankOf(track),this.foundry.paths.get(track))
     }
     return upgrades[id]
   }
-  growthChoices() {
-    const heroEvo = heroEvolution[this.hero]
-    const weapon =
-      this.weaponRank >= awakeningRank && !this.evolutions.has(heroEvo)
-        ? heroEvo
-        : this.weaponRank < maxRank
-          ? weaponTraining
-          : undefined
-    const passives = this.deck.flatMap((key) => {
-      const rank = this.passiveRanks[key],
-        evo = spellEvolution[key]
-      return rank >= awakeningRank && !this.evolutions.has(evo)
-        ? [evo]
-        : rank < maxRank
-          ? [passiveTraining + key]
-          : []
-    })
-    const choices: number[] = weapon === undefined ? [] : [weapon]
-    // Keep an available evolution visible even if three passives unlock together.
-    const first = passives.findIndex(isEvolution)
-    if (first >= 0) choices.push(passives.splice(first, 1)[0])
-    const draw = (pool: number[]) => pool.splice(Math.floor(this.random() * pool.length), 1)[0]
-    while (choices.length < (this.level % 3 === 0 ? 2 : 3) && passives.length)
-      choices.push(draw(passives))
-    const support = [0, 1, 2, 3, 4, 5]
-    while (choices.length < 3) choices.push(draw(support))
-    if (this.level >= 6 && this.level % 3 === 0 && !this.arsenal.mastery) {
-      const specializations = traditions.flatMap((t, i) => this.arsenal.schools.has(t.key) ? [masteryStart + i] : [])
-      if (specializations.length) choices.splice(3 - specializations.length, specializations.length, ...specializations)
-    }
-    return choices
+  growthChoices(){
+    const all=this.availableGrowth(),draw=(pool:number[])=>pool.splice(Math.floor(this.random()*pool.length),1)[0]
+    const weapon=this.trackChoices(0)[0]
+    const owned=this.deck.flatMap(k=>this.trackChoices(k+1).slice(0,1))
+    const recruits=all.filter(isRecruit)
+    const picks=all.filter(isMastery).slice(0,2)
+    if(weapon!==undefined)picks.unshift(weapon)
+    if(owned.length)picks.push(draw(owned))
+    // Preserve two discovery slots even when the starting build still has several upgrades.
+    while(recruits.length && picks.filter(isRecruit).length<2)picks.push(draw(recruits))
+    while(picks.length<5&&owned.length)picks.push(draw(owned))
+    const supports=[0,1,2,3,4,5]
+    while(picks.length<6)picks.push(draw(supports))
+    return this.goalFirst(picks)
   }
   collect(dt: number) {
     const p = this.player
@@ -623,6 +652,7 @@ export class Battle {
       p.stride += walked / 14
     }
     this.arsenal.moved(walked, dt)
+    this.foundry.chargePassives(walked, dt)
     p.fire -= dt
     p.shield -= dt
     p.invuln -= dt
@@ -669,7 +699,8 @@ export class Battle {
       this.effect('wave', p, 0xff8748, waveNames.length + 1)
       this.bossTimer = 2
     }
-    const reach = [281,281,98,269,255,225][this.hero]
+    const side = this.foundry.side(0)
+    const reach = this.hero===2 && side===1 ? 183 : [281,281,98,269,255,225][this.hero]
     if (p.fire <= 0 && !p.strike) {
       const enemy = this.arsenal.weaponTarget(reach)
       if (enemy) {
@@ -689,21 +720,32 @@ export class Battle {
       if (!a.fired && elapsed >= a.windup) {
         a.fired = true
         this.arsenal.onWeaponFired(a.angle)
+        const aimed = this.enemies.find(e=>e.id===a.target&&e.hp>0) ?? {x:p.x+Math.cos(a.angle)*100,y:p.y+Math.sin(a.angle)*100}
+        this.foundry.onUse(0,aimed,a.angle)
         if (this.hero === 2) {
-          this.effect('hammer', p, 0xffcb61, 70)
-          const targets = this.nearby(p, 104)
-          this.area(p, 104, this.damage, 0xffc168)
+          const center=side===1?aimed:p, radius=side===1?76:104
+          this.effect('hammer', center, 0xffcb61, 70)
+          const targets = this.nearby(center, radius)
+          this.area(center, radius, this.damage, 0xffc168)
           for (const e of targets) {
             this.arsenal.onWeaponHit(e)
-            const d = Math.max(1, distance(p, e))
-            e.x += ((e.x - p.x) * 17) / d
-            e.y += ((e.y - p.y) * 17) / d
+            const d = Math.max(1, distance(center, e)),push=side===0?43:17
+            if(side===1)e.slow=Math.max(e.slow,2)
+            e.x += ((e.x - center.x) * push) / d
+            e.y += ((e.y - center.y) * push) / d
           }
           if (this.evolutions.has(Evo.fault)) this.projectile(p, a.angle, 9, this.damage * 0.8)
         } else if (this.hero >= 3) {
           const target = this.enemies.find(e => e.id === a.target && e.hp > 0) ?? this.arsenal.weaponTarget(reach)
           this.arsenal.newWeapon(target, a.angle)
-        } else this.shoot(p, a.angle, this.hero, this.damage)
+        } else if(this.hero===0 && side>=0){
+          for(const offset of side===0?[-.28,0,.28]:[0,Math.PI])this.shoot(p,a.angle+offset,0,this.damage*(side===0?.59:.84))
+        } else if(this.hero===1 && side===1){
+          for(const sign of [-1,1]){
+            const start={x:p.x-sign*Math.sin(a.angle)*25,y:p.y+sign*Math.cos(a.angle)*25}
+            this.shoot(start,Math.atan2(aimed.y-start.y,aimed.x-start.x),1,this.damage*.68)
+          }
+        }else this.shoot(p, a.angle, this.hero, this.damage)
       }
       if (elapsed >= a.windup + a.recovery) p.strike = null
     }
@@ -734,6 +776,7 @@ export class Battle {
     }
     this.turrets = this.turrets.filter((t) => t.life > 0)
     this.arsenal.step(dt)
+    this.foundry.step(dt)
     const traveling = this.shots.length
     for (let i = 0; i < traveling; i++) {
       const s = this.shots[i]
@@ -750,6 +793,7 @@ export class Battle {
           continue
         this.hurt(e, s.damage)
         if ([0,1,8,9].includes(s.style)) this.arsenal.onWeaponHit(e)
+        this.foundry.onShot(s.style,e,Math.atan2(s.vy,s.vx),!s.hit.length,s.damage)
         s.hit.push(e.id)
         s.pierce--
         if (s.style === 0 && s.hit.length === 1 && this.evolutions.has(Evo.fork)) {

@@ -58,6 +58,12 @@ export class Arsenal {
     this.battle = battle
     this.schools = new Set(activeTraditions(battle.hero, battle.deck).map((t) => t.key))
   }
+  refreshSchools(){
+    this.schools.clear()
+    for(const t of activeTraditions(this.battle.hero,this.battle.deck))this.schools.add(t.key)
+    if(!this.schools.has('wind'))this.windTravel=0
+    if(!this.schools.has('fire'))this.burned.clear()
+  }
   private signal(key: School, at: Point) {
     this.triggers[key]++
     this.battle.effect('crest', at, palettes[key], 23)
@@ -181,6 +187,7 @@ export class Arsenal {
   }
   weaponTarget(reach: number) {
     const targets = this.battle.nearby(this.battle.player, reach)
+    if (this.battle.foundry.paths.has(0)) return this.battle.foundry.selectTarget(0,targets)
     if (this.battle.hero !== 5) return targets[0]
     return targets.reduce<Enemy | undefined>(
       (best, e) => (!best || e.hp / e.max < best.hp / best.max ? e : best),
@@ -199,17 +206,20 @@ export class Arsenal {
     const b = this.battle,
       p = b.player
     b.effect('shot', p, [palettes.wind, palettes.fire, palettes.hex][b.hero - 3], b.hero)
+    const side=b.foundry.side(0)
     if (b.hero === 3) {
-      for (const offset of b.evolutions.has(Evo.moon) ? [-0.29, 0.29] : [0]) {
+      for (const offset of b.evolutions.has(Evo.moon) ? (side===1?[-.52,.52]:[-.29,.29]) : [0]) {
         const d = this.device('moon', p, 1.65, b.damage, 12, angle + offset)
         Object.assign(d, { contacts: new Set<number>(), returning: false })
       }
     } else if (target && b.hero === 4) {
-      this.device('flask', target, 0.36, b.damage, 59, angle).origin = { x: p.x, y: p.y }
+      this.device('flask', side===0?{x:(target.x+p.x)/2,y:(target.y+p.y)/2}:target, side===1?.68:.36, b.damage, side===1?89:59, angle).origin = { x: p.x, y: p.y }
     } else if (target && b.hero === 5) {
       this.mark(target, b.damage * 0.16)
+      if(side===0){const other=b.nearby(target,145).find(e=>e!==target);if(other){this.mark(other,b.damage*.16);b.effect('bolt',target,palettes.hex,2,other)}}
       b.effect('slash', p, palettes.hex, 1, target)
-      b.hurt(target, b.damage * (target.hp / target.max <= 0.3 ? 1.75 : 1))
+      b.hurt(target, b.damage * (target.hp / target.max <= (side===1?.48:.3) ? 1.75 : 1))
+      if(side===1&&target.hp<=0)p.hp=Math.min(p.max,p.hp+3)
       this.onWeaponHit(target)
       if (target.hp <= 0 && b.evolutions.has(Evo.reaper)) {
         const next = b.nearby(target, 190).sort((a, c) => a.hp / a.max - c.hp / c.max)[0]
@@ -298,7 +308,7 @@ export class Arsenal {
     switch (d.kind) {
       case 'moon': {
         const moon = d as Moon
-        if (!moon.returning && d.age >= 0.56) {
+        if (!moon.returning && d.age >= (b.foundry.side(0)===0?.33:b.foundry.side(0)===1?.74:.56)) {
           moon.returning = true
           moon.contacts.clear()
         }
@@ -324,7 +334,7 @@ export class Arsenal {
         if (d.age >= d.duration) {
           this.burnCircle(d, d.power, d.radius, true)
           b.effect('impact', d, 0, 72)
-          this.device('pool', d, 2.4, d.power * 0.29, 53, 0, b.evolutions.has(Evo.crucible))
+          this.device('pool', d, 2.4, d.power * 0.29, d.radius*.9, 0, b.evolutions.has(Evo.crucible))
         }
         break
       case 'pool':

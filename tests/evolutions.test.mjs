@@ -40,23 +40,18 @@ function fire(b, slot, point) {
   b.passiveTimers[key] = 0
   return b.triggerPassive(key, point)
 }
-test('武器及携带的被动有独立等级，三阶才会出现对应进化，已选进化不会重复', () => {
-  for (let hero = 0; hero < 3; hero++) {
+test('二阶解锁武器和携带被动的独有改造，三阶可以选择两条不同路线', () => {
+  for (let hero = 0; hero < 6; hero++) {
     const b = arena(hero)
     b.deck = [1, 3, 5]
-    assert.ok(b.growthChoices().includes(weaponTraining))
-    assert.ok(b.growthChoices().every((i) => !isEvolution(i)))
     pick(b, weaponTraining)
-    pick(b, weaponTraining)
-    assert.ok(b.growthChoices().includes(heroEvolution[hero]))
-    pick(b, heroEvolution[hero])
+    assert.ok(b.evolutions.has(heroEvolution[hero]))
+    assert.equal(b.trackChoices(0).length,2)
     for (const key of b.deck) {
       pick(b, passiveTraining + key)
-      pick(b, passiveTraining + key)
-      assert.ok(b.growthChoices().includes(spellEvolution[key]))
-      pick(b, spellEvolution[key])
+      assert.ok(b.evolutions.has(spellEvolution[key]))
+      assert.equal(b.trackChoices(key+1).length,2)
     }
-    assert.ok(b.growthChoices().every((i) => !isEvolution(i)))
   }
 })
 test('英雄攻击与敌人近战的命中发生在出手帧，走开可躲，倒下保留独立帧', () => {
@@ -97,7 +92,7 @@ test('英雄攻击与敌人近战的命中发生在出手帧，走开可躲，�
 test('刺头首击分叉且支弹能分别命中两翼', () => {
   const b = arena(),
     p = b.player
-  pick(b, Evo.fork)
+  b.evolutions.add(Evo.fork)
   const center = spawnAt(b, p.x + 49, p.y)
   const wings = [-1, 1].map((sign) => spawnAt(b, center.x + 60, p.y + sign * 36))
   b.projectile(p, 0, 0, 24)
@@ -111,7 +106,7 @@ test('刺头首击分叉且支弹能分别命中两翼', () => {
 test('霹雳第三次命中放置信标，会攻击后来进入的敌人', () => {
   const b = arena(1),
     p = b.player
-  pick(b, Evo.beacon)
+  b.evolutions.add(Evo.beacon)
   const e = spawnAt(b, p.x + 60, p.y)
   for (let hit = 1; hit <= 3; hit++) {
     b.projectile(e, 0, 1, 10)
@@ -129,7 +124,7 @@ test('霹雳第三次命中放置信标，会攻击后来进入的敌人', () =>
 test('铁墩锤击后发出裂隙，连续命中普攻范围外的敌人', () => {
   const b = arena(2),
     p = b.player
-  pick(b, Evo.fault)
+  b.evolutions.add(Evo.fault)
   spawnAt(b, p.x + 69, p.y)
   const far = [150, 215].map((x) => spawnAt(b, p.x + x, p.y))
   p.fire = 0
@@ -142,7 +137,7 @@ test('铁墩锤击后发出裂隙，连续命中普攻范围外的敌人', () =>
 test('炮芽由两侧分别建塔开火，上限六株，换塔保留凋落态', () => {
   const b = arena(),
     p = b.player
-  pick(b, Evo.twins)
+  b.evolutions.add(Evo.twins)
   const target = { x: p.x, y: p.y - 140 }
   spawnAt(b, target.x, target.y)
   fire(b, 0)
@@ -161,7 +156,7 @@ test('炮芽由两侧分别建塔开火，上限六株，换塔保留凋落态',
 test('雷印延迟二次索敌，碎星有三个独立的落点与延迟', () => {
   const b = arena(0, 1),
     at = { x: 500, y: 420 }
-  pick(b, Evo.echo)
+  b.evolutions.add(Evo.echo)
   fire(b, 0, at)
   const newcomer = spawnAt(b, at.x, at.y)
   tick(b, 30)
@@ -170,7 +165,7 @@ test('雷印延迟二次索敌，碎星有三个独立的落点与延迟', () =>
   assert.equal(newcomer.hp, newcomer.max - 39)
   b.deck = [2]
 
-  pick(b, Evo.cluster)
+  b.evolutions.add(Evo.cluster)
   fire(b, 0, at)
   tick(b, 27)
   const parts = b.zones.filter((z) => z.type === 'fragment')
@@ -183,7 +178,7 @@ test('雷印延迟二次索敌，碎星有三个独立的落点与延迟', () =>
 test('冰环能定身，冻结目标的死亡会引爆邻居且每个目标只结算一次', () => {
   const b = arena(0, 3),
     p = b.player
-  pick(b, Evo.shatter)
+  b.evolutions.add(Evo.shatter)
   const pack = [40, 61, 81].map((x, i) => spawnAt(b, p.x + x, p.y, i === 1 ? 56 : 110))
   pack[0].speed = 70
   fire(b, 0, p)
@@ -198,7 +193,7 @@ test('冰环能定身，冻结目标的死亡会引爆邻居且每个目标只�
 test('进化旋风将敌人拉向中心，首领牵引减弱', () => {
   const b = arena(0, 4),
     at = { x: 300, y: 370 }
-  pick(b, Evo.vortex)
+  b.evolutions.add(Evo.vortex)
   const regular = spawnAt(b, at.x + 98, at.y)
   const boss = b.spawn(6)
   Object.assign(boss, { x: at.x - 98, y: at.y, speed: 0 })
@@ -210,7 +205,7 @@ test('进化旋风将敌人拉向中心，首领牵引减弱', () => {
 })
 test('金盾受击产生八向反刺，未受击不触发，连续受击有间隔', () => {
   const b = arena(0, 5)
-  pick(b, Evo.thorns)
+  b.evolutions.add(Evo.thorns)
   spawnAt(b, b.player.x + 42, b.player.y)
   fire(b, 0)
   assert.equal(b.shots.length, 0)
@@ -229,7 +224,7 @@ test('进化冰晶能打断巨像蓄力并撤下对应的预警', () => {
   tick(b, 1)
   assert.equal(boss.strike.kind, 'slam')
   assert.ok(b.zones.some((z) => z.owner === boss.id))
-  pick(b, Evo.shatter)
+  b.evolutions.add(Evo.shatter)
   fire(b, 0, boss)
   assert.equal(boss.strike, null)
   assert.ok(!b.zones.some((z) => z.owner === boss.id))

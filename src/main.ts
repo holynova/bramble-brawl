@@ -5,10 +5,9 @@ import {
   gears,
   contracts,
   upgrades,
-  isEvolution,
+  weaponTraining,
   waveNames,
   nova,
-  heroEvolution,
   spellEvolution,
   gearCost,
   clock,
@@ -17,6 +16,7 @@ import {
   saveProfile,
 } from './data.ts'
 import { traditions, activeTraditions, weaponSchools, passiveSchools, masteries, isMastery, masteryStart } from './builds.ts'
+import { castingChange, blueprints, signature, trackName, trackArt, pathsFor, forkStart, isFork, forkTrack, forkId, isRecruit, recruitStart, battleSlots } from './forge.ts'
 import type { School } from './builds.ts'
 import { Battle } from './simulation.ts'
 import { ico } from './icons.ts'
@@ -33,6 +33,7 @@ let sim: Battle | null = null,
 let panel = '',
   previewSpell = -1,
   previewBuild = 0,
+  pendingRecruit = -1,
   lastFocus: HTMLElement | null = null,
   session = 0,
   settled = false,
@@ -203,6 +204,22 @@ function schoolSummary(hero: number, deck: number[]) {
   const active = activeTraditions(hero, deck)
   return active.length ? badges(active.map(t => t.key)) : '<span class="no-school">凑齐两个同系来源可激活联动</span>'
 }
+function tree(hero:number,track:number,selected?:number,mode:'preview'|'fork'|'plan'='preview') {
+  const first=upgrades[signature(hero,track)]
+  return '<div class="forge-signature">'+img(first.art)+'<div><small>Ⅱ阶 · 首次改造</small><b>'+first.name+'</b><p>'+first.desc+'</p></div></div>'+
+    '<div class="route-pair">'+pathsFor(hero,track).map((id,side)=>{
+      const path=blueprints[id]
+      const allowed=selected===undefined||selected===id
+      const action=mode==='fork'?'<button class="route-act gold" data-do="confirmGrowth" data-i="'+forkId(track,side)+'">选择'+path.name+'</button>':
+        mode==='plan'&&allowed?'<button class="route-act" data-do="pinGrowth" data-i="'+forkId(track,side)+'">'+(sim?.goal?.track===track&&sim.goal.side===side?'已追踪':'追踪终式')+'</button>':''
+      return '<article class="route-card'+(selected===id?' locked-in':'')+'">'+img(path.art)+
+        '<small>Ⅲ阶 · '+path.name+'</small><p>'+path.start+'</p><p class="cast-change">'+castingChange(hero,track,side)+'</p><b>Ⅳ '+path.midName+'</b><p>'+path.mid+'</p><b>Ⅴ '+path.endName+'</b><p>'+path.end+'</p>'+action+'</article>'
+    }).join('')+'</div>'
+}
+function campTree(track:number,hero=p.hero){
+  dialog(trackName(hero,track)+' · 进阶路线',tree(hero,track)+'<button class="mini gold" data-do="'+(track?'deck':'builds')+'">返回'+(track?'被动库':'流派手册')+'</button>','forge-sheet')
+  panel='campTree'
+}
 function showBuilds() {
   const t = traditions[previewBuild], h = heroes[t.hero], mastery = masteries[t.key]
   const equipped = p.hero === t.hero && p.deck.join() === t.deck.join()
@@ -216,7 +233,7 @@ function showBuilds() {
     '<dl class="build-rules"><dt>同系 ×2</dt><dd>'+t.effect+'</dd><dt>升级</dt><dd>'+t.priority+
     '</dd><dt>六级专精</dt><dd><b>'+mastery.name+'</b> · '+mastery.desc+'</dd></dl>'+
     '<button class="mini gold apply-build" data-do="equipBuild">'+(equipped?'已装备 · 返回营地':'采用这套出战')+'</button>'+
-    '<div class="guide-links"><button class="custom-build" data-do="deck">自配被动</button><button class="custom-build" data-do="loadouts">我的搭配</button></div>'
+    '<div class="guide-links"><button class="custom-build" data-do="guideTree">武器路线</button><button class="custom-build" data-do="deck">自配被动</button><button class="custom-build" data-do="loadouts">我的搭配</button></div>'
   dialog('流派手册', body, 'guide-sheet')
   panel = 'builds'
 }
@@ -252,7 +269,7 @@ function showDeck() {
     }).join('')+'</div>'
     detail = '<section class="card-detail"><div class="detail-name">'+img('spell-'+index)+'<div><b>'+spell.name+
       ' · '+spell.cooldown+' 秒</b><div>'+badges(passiveSchools[index])+'</div></div></div><p>'+spell.desc+'</p>'+
-      '<p class="evo-preview"><strong>'+evo.name+'</strong> · '+evo.desc+'</p>'+swaps+'</section>'
+      '<p class="evo-preview"><strong>'+evo.name+'</strong> · '+evo.desc+'</p><button class="custom-build" data-do="campTree" data-i="'+(index+1)+'">查看两条进阶路线</button>'+swaps+'</section>'
   }
   const grid = spells.map((skill,i) => '<button class="collect-card '+(p.deck.includes(i)?'equipped ':'')+
     (i===index?'viewing':'')+'" style="--card:'+skill.color+'" data-do="inspect" data-i="'+i+'" aria-label="'+skill.name+'">'+
@@ -347,7 +364,7 @@ function showRecords() {
   panel = 'records'
 }
 function howTo() {
-  return '<div class="how"><p><b>走位</b> 拖动战场移动，武器自动瞄准。桌面可用 WASD 或方向键。</p><p><b>震荡爆发</b> 轻点右下按钮或按空格，击退近敌，短暂护身。冷却 18 秒。</p><p><b>成长</b> 三个被动自动触发，武器和被动三阶可选进化。武器和被动中凑齐两个同系来源即激活联动。从六级起，每三个等级有一次选择本局唯一专精的机会。</p></div>'
+  return '<div class="how"><p><b>走位</b> 拖动战场移动，武器自动瞄准。桌面可用 WASD 或方向键。</p><p><b>震荡爆发</b> 轻点右下按钮或按空格，击退近敌，短暂护身。冷却 18 秒。</p><p><b>成长</b> 三个起手被动自动触发，战斗中可从十八种被动里研习至五个。二阶改造，三阶选路线，四阶进阶，五阶获得终式。武器和被动中凑齐两个同系来源即激活联动。从六级起，每三个等级有一次选择本局唯一专精的机会。</p></div>'
 }
 function showSettings() {
   dialog(
@@ -373,22 +390,21 @@ function showSettings() {
         .join('') +
       '</div><button class="mini sound-check" data-do="audition">' +
       (p.audio ? '试听武器音效' : '开启声音并试听') +
-      '</button><h3 class="subhead">荒野手册</h3><a href="https://github.com/holynova/bramble-brawl" target="_blank" rel="noopener" style="display:block;color:inherit;text-align:center;padding:8px">GitHub · v1.3.0</a>' +
+      '</button><h3 class="subhead">荒野手册</h3><a href="https://github.com/holynova/bramble-brawl" target="_blank" rel="noopener" style="display:block;color:inherit;text-align:center;padding:8px">GitHub · v1.4.0</a>' +
       howTo(),
   )
   panel = 'settings'
 }
+function trainedName(s:Battle,track:number){
+  const rank=s.rankOf(track),path=s.foundry.paths.get(track)
+  if(path!==undefined){const v=blueprints[path];return rank===5?v.endName:rank===4?v.midName:v.name}
+  return rank>=2?upgrades[signature(s.hero,track)].name:trackName(s.hero,track)
+}
+function tray(s:Battle){
+  return s.deck.map(k=>'<span class="passive-tile" data-passive="'+k+'">'+img('spell-'+k)+'<i class="rank">'+s.passiveRanks[k]+'</i><b class="cd"></b></span>').join('')
+}
 function buildList(s: Battle) {
-  const weapon = s.evolutions.has(heroEvolution[s.hero])
-    ? upgrades[heroEvolution[s.hero]].name
-    : heroes[s.hero].passive
-  const tracks = [
-    { art: 'face-' + s.hero, name: weapon, rank: s.weaponRank },
-    ...s.deck.map((k) => {
-      const u = s.evolutions.has(spellEvolution[k]) ? upgrades[spellEvolution[k]] : undefined
-      return { art: u?.art ?? 'spell-' + k, name: u?.name ?? spells[k].short, rank: s.passiveRanks[k] }
-    }),
-  ]
+  const tracks=[0,...s.deck.map(k=>k+1)].map(track=>({art:trackArt(s.hero,track),name:trainedName(s,track),rank:s.rankOf(track)}))
   return (
     '<section class="build-list"><h3>本场武器与被动</h3><div>' +
     tracks
@@ -403,8 +419,10 @@ function buildList(s: Battle) {
 }
 function updateBuild(s: Battle, id: number) {
   if (isMastery(id)) banner('流派专精 · ' + masteries[traditions[id-masteryStart].key].name)
-  if (isEvolution(id)) banner('已觉醒 · ' + upgrades[id].name)
-  const hero = s.evolutions.has(heroEvolution[s.hero]) ? upgrades[heroEvolution[s.hero]].name : '武器'
+  if (isFork(id)) banner('路线锁定 · '+trainedName(s,forkTrack(id)))
+  else if (isRecruit(id)) banner('新被动 · '+spells[id-recruitStart].name)
+  else if (id>=weaponTraining && id<weaponTraining+spells.length+1) banner('进阶 · '+trainedName(s,id-weaponTraining))
+  const hero = trainedName(s,0)
   const label = document.getElementById('hero-evo')!
   label.textContent = hero + ' ' + s.weaponRank + '阶'
   label.hidden = false
@@ -412,7 +430,7 @@ function updateBuild(s: Battle, id: number) {
     const el = document.querySelector<HTMLElement>('[data-passive="' + k + '"]')!
     const evo = s.evolutions.has(spellEvolution[k]) ? upgrades[spellEvolution[k]] : undefined
     el.classList.toggle('awakened', !!evo)
-    const name = evo?.name ?? spells[k].short
+    const name = trainedName(s,k+1)
     el.querySelector('img')!.src = art(evo?.art ?? 'spell-' + k)
     el.querySelector('.rank')!.textContent = String(s.passiveRanks[k])
     el.title = name + ' · ' + s.passiveRanks[k] + '阶'
@@ -440,45 +458,51 @@ function showPause() {
   )
   panel = 'pause'
 }
-function showPick() {
-  const s = sim!
-  field?.pause(true)
-  battleMusic(false)
-  sound('level')
-  dialog(
-    '升级 · 选择成长',
-    '<p class="intro center">等级 ' +
-      s.level +
-      ' · 选一项带入本场战斗</p><div class="pick-list">' +
-      s.choices
-        .map((i) => {
-          const u = s.upgradeInfo(i)
-          return (
-            '<button class="pick ' +
-            (isEvolution(i) || isMastery(i) ? 'evolution-choice' : 'support-choice') +
-            '" data-do="pick" data-i="' +
-            i +
-            '" style="--card:' +
-            u.color +
-            '">' +
-            img(u.art) +
-            '<span><em>' +
-            u.source +
-            '</em><b>' +
-            u.name +
-            '</b><small>' +
-            u.desc +
-            '</small></span>' +
-            ico('next') +
-            '</button>'
-          )
-        })
-        .join('') +
-      '</div>',
-    '',
-    false,
-  )
-  panel = 'pick'
+function pickButton(s:Battle,id:number,action='pick'){
+  const u=s.upgradeInfo(id)
+  const text=isFork(id)&&action==='pick'?'选择改造路线':u.name
+  const followed=id===s.goalPick()&&s.goal ? '追踪 '+blueprints[pathsFor(s.hero,s.goal.track)[s.goal.side]].endName+' · ' : ''
+  const detail=isFork(id)&&action==='pick'?pathsFor(s.hero,forkTrack(id)).map(v=>blueprints[v].endName).join(' / '):u.desc
+  return '<button class="pick '+(id>=weaponTraining&&!isRecruit(id)?'evolution-choice':'support-choice')+'" data-do="'+action+'" data-i="'+id+'" style="--card:'+u.color+'">'+img(u.art)+'<span><em>'+followed+u.source+'</em><b>'+text+'</b><small>'+detail+'</small></span>'+ico('next')+'</button>'
+}
+function showPick(){
+  const s=sim!
+  if(panel!=='pick'){field?.pause(true);battleMusic(false);sound('level')}
+  dialog('等级 '+s.level+' · 选择成长','<div class="pick-nav"><b>本次推荐</b><button class="custom-build" data-do="pool">全部技能 · '+spells.length+' 被动</button></div><div class="pick-list">'+s.choices.map(id=>pickButton(s,id)).join('')+'</div>','growth-sheet',false)
+  panel='pick'
+}
+function showPool(){
+  const s=sim!
+  const cards=[0,...s.deck.map(k=>k+1),...spells.flatMap((_,k)=>s.deck.includes(k)?[]:[k+1])].map(track=>{
+    const owned=!track||s.deck.includes(track-1),rank=owned?s.rankOf(track):0
+    return '<button class="pool-item '+(owned?'owned':'')+'" data-do="poolTrack" data-i="'+track+'">'+img(trackArt(s.hero,track))+'<b>'+trackName(s.hero,track)+'</b><small>'+(rank===5?'终式已成':rank?'已携带 · '+rank+'阶':'可研习')+'</small></button>'
+  }).join('')
+  dialog('公共技能池','<div class="pick-nav"><b>本场被动 '+s.deck.length+' / '+battleSlots+'</b><button class="custom-build" data-do="pickBack">返回推荐</button></div>'+s.availableGrowth().filter(isMastery).map(id=>pickButton(s,id,'confirmGrowth')).join('')+'<div class="pool-grid">'+cards+'</div>','growth-sheet',false)
+  panel='pick'
+}
+function showTrack(track:number){
+  const s=sim!,owned=!track||s.deck.includes(track-1),rank=owned?s.rankOf(track):0
+  const choices=owned?s.trackChoices(track):[recruitStart+track-1]
+  const buttons=rank===2?'':choices.map(id=>pickButton(s,id,'confirmGrowth')).join('')
+  dialog(trackName(s.hero,track)+' · 锻造路线','<div class="pick-nav"><b>'+(rank?'当前 '+rank+' 阶':'研习后从一阶开始')+'</b><button class="custom-build" data-do="pool">返回技能池</button></div>'+tree(s.hero,track,s.foundry.paths.get(track),rank===5?'preview':rank===2?'fork':'plan')+
+    (buttons?'<div class="pick-list track-actions">'+buttons+'</div>':''),'forge-sheet',false)
+  panel='pick'
+}
+function commitGrowth(id:number,replace?:number){
+  const s=sim
+  if(!s||s.phase!=='upgrade')return
+  if(isRecruit(id)&&s.deck.length>=battleSlots&&replace===undefined){
+    pendingRecruit=id
+    const options=s.deck.map(k=>'<button class="pool-item" data-do="swapGrowth" data-i="'+k+'">'+img('spell-'+k)+'<b>'+spells[k].short+'</b><small>'+s.passiveRanks[k]+' 阶</small></button>').join('')
+    dialog('换入'+spells[id-recruitStart].short,'<p class="intro">选一项被动换下。它的本局阶数和路线会一并移除。</p><div class="pool-grid">'+options+'</div><button class="custom-build" data-do="pool">返回技能池</button>','growth-sheet',false)
+    panel='pick';return
+  }
+  if(!s.choose(id,replace))return
+  pendingRecruit=-1
+  closeDialog()
+  const bar=document.querySelector<HTMLElement>('.passive-tray > div')!
+  bar.innerHTML=tray(s);bar.parentElement!.classList.toggle('expanded',s.deck.length>3)
+  field?.pause(false);battleMusic(true);updateBuild(s,id);hud()
 }
 function leaveField() {
   session++
@@ -575,16 +599,7 @@ async function start() {
     '</button></header><div class="xp"><i id="xpbar"></i></div><div id="boss" hidden><strong>晶核巨像</strong><i><b></b></i></div><div id="banner"></div><div class="kills">' +
     ico('skull') +
     '<b id="kills">0</b></div><div id="hurt-frame" aria-hidden="true"></div><aside class="passive-tray" aria-label="自动被动"><small>自动被动</small><div>' +
-    s.deck
-      .map(
-        (k) =>
-          '<span class="passive-tile" data-passive="' +
-          k +
-          '">' +
-          img('spell-' + k) +
-          '<i class="rank">1</i><b class="cd"></b></span>',
-      )
-      .join('') +
+    tray(s) +
     '</div></aside><button class="nova-button" data-do="nova" aria-label="释放震荡爆发"><span class="nova-disc">' +
     img('nova') +
     '<strong id="nova-cd"></strong></span><b>震荡爆发</b></button><div id="loading"><div class="loader"></div><b>正在进入矿谷…</b></div></section>'
@@ -842,14 +857,17 @@ document.addEventListener('click', (e) => {
     case 'pause':
       showPause()
       break
+    case 'guideTree': campTree(0,traditions[previewBuild].hero);break
+    case 'campTree': campTree(i);break
+    case 'pool': if(sim?.phase==='upgrade')showPool();break
+    case 'pinGrowth': if(sim?.pinGoal(forkTrack(i),(i-forkStart)%2))showPick();break
+    case 'poolTrack': if(sim?.phase==='upgrade')showTrack(i);break
+    case 'pickBack': if(sim?.phase==='upgrade')showPick();break
+    case 'swapGrowth': if(pendingRecruit>=0)commitGrowth(pendingRecruit,i);break
+    case 'confirmGrowth': commitGrowth(i);break
     case 'pick':
-      if (sim?.phase === 'upgrade' && sim.choices.includes(i)) {
-        sim.choose(i)
-        closeDialog()
-        field?.pause(false)
-        battleMusic(true)
-        hud()
-        updateBuild(sim, i)
+      if(sim?.phase==='upgrade' && sim.choices.includes(i)){
+        if(isFork(i))showTrack(forkTrack(i));else commitGrowth(i)
       }
       break
     case 'retreat':

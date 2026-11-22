@@ -169,6 +169,12 @@ export const spells = [
     type: '电场',
     desc: '在面前横设一段电栅，持续五秒。横穿电线的敌人会反复受到电击。',
   },
+  {"name": "镜砂分身", "short": "镜狐", "cooldown": 14, "color": "#72ead2", "type": "幻象", "desc": "召出留在原地的沙狐镜像，连续向靠近它的敌人发射飞针。"},
+  {"name": "日轮焰盘", "short": "焰盘", "cooldown": 11, "color": "#ffab50", "type": "贴身", "desc": "展开一面随身移动的日轮，反复灼烧靠近英雄的敌人。"},
+  {"name": "渡魂灯", "short": "魂灯", "cooldown": 13, "color": "#ea94e0", "type": "汲取", "desc": "悬灯照射附近的敌人，并把灯边的经验晶石牵回英雄身边。"},
+  {"name": "牵引锚", "short": "重锚", "cooldown": 14, "color": "#efbd66", "type": "牵引", "desc": "向敌人投锚，将周围怪物拉向锚心，打断普通怪的冲刺。"},
+  {"name": "霜羽飞梭", "short": "霜羽", "cooldown": 9, "color": "#a1eeff", "type": "穿刺", "desc": "向面前三路发射贯穿飞梭，命中的敌人减速。"},
+  {"name": "蓄电战鼓", "short": "战鼓", "cooldown": 15, "color": "#c19aff", "type": "回充", "desc": "鼓声击退贴身追兵，为剩余冷却最长的另一项被动回充。"},
 ]
 export const gears = [
   { name: '矿工拳套', desc: '每级提升 8% 基础攻击', color: '#ff9258' },
@@ -187,10 +193,9 @@ export const nova = {
   radius: 146,
   desc: '击退身边的敌人，打断普通怪的攻击，并获得短暂保护。',
 }
-export const weaponTraining = 24
-export const passiveTraining = 25
+export const weaponTraining = 30
+export const passiveTraining = 31
 export const maxRank = 5
-export const awakeningRank = 3
 export const isEvolution = (id: number) => id >= 6 && id < weaponTraining
 export const Evo = {
   fork: 6,
@@ -206,7 +211,7 @@ export const Evo = {
   orbit: 18, rekindle: 19, plague: 20, flight: 21, ridge: 22, overload: 23,
 } as const
 export const heroEvolution = [Evo.fork, Evo.beacon, Evo.fault, Evo.moon, Evo.crucible, Evo.reaper]
-export const spellEvolution = [Evo.twins, Evo.echo, Evo.cluster, Evo.shatter, Evo.vortex, Evo.thorns, Evo.orbit, Evo.rekindle, Evo.plague, Evo.flight, Evo.ridge, Evo.overload]
+export const spellEvolution = [Evo.twins, Evo.echo, Evo.cluster, Evo.shatter, Evo.vortex, Evo.thorns, Evo.orbit, Evo.rekindle, Evo.plague, Evo.flight, Evo.ridge, Evo.overload, 24, 25, 26, 27, 28, 29]
 export const upgrades = [
   { name: '重装弹芯', desc: '基础伤害 +22%', art: 'gear-0', color: '#ff9f55', source: '攻击强化' },
   { name: '疾速扳机', desc: '普攻间隔缩短 12%', art: 'spell-1', color: '#ae92ff', source: '攻速强化' },
@@ -358,6 +363,12 @@ export const upgrades = [
     color: '#aa9bff',
     source: '鸣弧线圈 · 进化',
   },
+  {"name": "折镜双身", "desc": "镜像会在左右两侧同时出现，各自寻找射击目标。", "art": "spell-12", "color": "#72ead2", "source": "镜砂分身 · 改造"},
+  {"name": "日蚀余烬", "desc": "日轮收拢时在英雄脚下留下火池，封住追兵的路。", "art": "spell-13", "color": "#ffab50", "source": "日轮焰盘 · 改造"},
+  {"name": "还魂灯芯", "desc": "灯火每次从敌人身上汲取魂力，还会治疗英雄。", "art": "spell-14", "color": "#ea94e0", "source": "渡魂灯 · 改造"},
+  {"name": "破岩锚链", "desc": "锚链收回时将聚拢的敌人向外震开。", "art": "spell-15", "color": "#efbd66", "source": "牵引锚 · 改造"},
+  {"name": "霜针折返", "desc": "飞梭命中首个敌人时再向身后射出一枚反向冰羽。", "art": "spell-16", "color": "#a1eeff", "source": "霜羽飞梭 · 改造"},
+  {"name": "二重鼓点", "desc": "第二声鼓点在短暂延迟后再次击退敌人并回充。", "art": "spell-17", "color": "#c19aff", "source": "蓄电战鼓 · 改造"},
 ]
 export const art = (key: string) =>
   (globalThis as { brambleArt?: Record<string, string> }).brambleArt?.[key] ?? './art/' + key + '.webp'
