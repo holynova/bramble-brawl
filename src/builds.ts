@@ -8,6 +8,7 @@ type Tradition = {
   tactics: string
   hero: number
   deck: [number, number, number]
+  reserves: number[]
   priority: string
 }
 export const traditions: Tradition[] = [
@@ -16,7 +17,8 @@ export const traditions: Tradition[] = [
     name: '疾风回刃',
     color: '#72ead2',
     hero: 3,
-    deck: [6, 4, 7],
+    deck: [6, 5, 12],
+    reserves: [7, 4, 3, 1, 8, 10],
     effect: '每移动 180 距离蓄一刃，下次普攻附带一枚穿透风刃。',
     tactics: '绕到怪群侧面，改变回镖的返程路线，让内外两道刃线交叉。',
     priority: '先觉醒回镖，再升刃轮',
@@ -26,7 +28,8 @@ export const traditions: Tradition[] = [
     name: '燎原火径',
     color: '#ffac66',
     hero: 4,
-    deck: [7, 2, 4],
+    deck: [7, 2, 13],
+    reserves: [4, 6, 11, 9, 0, 8],
     effect: '刚被火焰灼伤的敌人死亡时，会在原地留下一片野火。每两秒可蔓延一次。',
     tactics: '沿窄路铺下火径，绕回火池，引追兵穿过同一处交火点。',
     priority: '先升火径，再觉醒药瓶',
@@ -36,7 +39,8 @@ export const traditions: Tradition[] = [
     name: '蚀魂收割',
     color: '#ef9adf',
     hero: 5,
-    deck: [8, 4, 3],
+    deck: [8, 4, 14],
+    reserves: [9, 3, 6, 10, 1, 7],
     effect: '带印敌人倒下时回复 5 生命，并射出魂丝打击邻敌。每两秒可触发一次。',
     tactics: '在怪群边缘放印，贴近伤敌收割，再借传印和回血接下一组。',
     priority: '先升魂印，再觉醒绯镰',
@@ -46,7 +50,8 @@ export const traditions: Tradition[] = [
     name: '蜂塔工事',
     color: '#ffdc76',
     hero: 2,
-    deck: [0, 9, 5],
+    deck: [0, 9, 15],
+    reserves: [5, 10, 2, 11, 1, 3],
     effect: '站稳 1.2 秒后自动部署一座短时哨塔，部署间隔八秒。',
     tactics: '在炮台和巡蜂的射程内短暂停步。重锤推走近敌，下一波再换阵地。',
     priority: '先升炮芽，再升巡蜂',
@@ -56,7 +61,8 @@ export const traditions: Tradition[] = [
     name: '冻土碎击',
     color: '#94e5ff',
     hero: 0,
-    deck: [3, 10, 6],
+    deck: [3, 10, 16],
+    reserves: [6, 5, 4, 0, 9, 11],
     effect: '主武器击中减速或冻结目标时，冰屑炸向周围敌人。间隔 1.5 秒。',
     tactics: '用脚下的冰雷封住追兵路线，回头用贯穿双枪引爆聚在一起的目标。',
     priority: '先升冰雷，再升双枪',
@@ -66,12 +72,15 @@ export const traditions: Tradition[] = [
     name: '雷网共振',
     color: '#c1a9ff',
     hero: 1,
-    deck: [1, 11, 9],
+    deck: [1, 11, 17],
+    reserves: [9, 3, 0, 4, 2, 5],
     effect: '每第三次被动发动时，额外放出一道最多跳跃三次的电链。',
     tactics: '沿电栅横向移动，把怪群拉到同一条线上。优先缩短被动冷却。',
     priority: '先升落雷与电栅',
   },
 ]
+export const traditionFor = (hero: number) => traditions.find(t => t.hero === hero)!
+
 export const weaponSchools: School[][] = [['wind'], ['arc'], ['fort'], ['wind'], ['fire'], ['hex']]
 export const passiveSchools: School[][] = [
   ['fort'],

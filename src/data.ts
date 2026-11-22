@@ -183,8 +183,8 @@ export const gears = [
 ]
 export const contracts = [
   { name: '落日矿谷', en: 'SUNSET QUARRY', rank: '初探', seconds: 240, factor: 1, bounty: 120 },
-  { name: '紫晶暴动', en: 'CRYSTAL RIOT', rank: '精英', seconds: 360, factor: 1.22, bounty: 210 },
-  { name: '终极通缉', en: 'LAST STAND', rank: '传奇', seconds: 480, factor: 1.43, bounty: 330 },
+  { name: '紫晶暴动', en: 'CRYSTAL RIOT', rank: '精英', seconds: 360, factor: 1.37, bounty: 210 },
+  { name: '终极通缉', en: 'LAST STAND', rank: '传奇', seconds: 480, factor: 1.84, bounty: 330 },
 ]
 export const waveNames = ['前哨', '蝠群', '重甲', '夹击', '围攻', '决战']
 export const nova = {
@@ -375,15 +375,8 @@ export const art = (key: string) =>
 export const clock = (value: number) =>
   [Math.floor(value / 60), Math.floor(value % 60)].map((n) => String(n).padStart(2, '0')).join(':')
 export const gearCost = (level: number) => 20 + level * 25
-export type Loadout = { hero: number; deck: number[] }
-function validDeck(value: unknown): value is number[] {
-  return Array.isArray(value) && value.length === 3 && new Set(value).size === 3 &&
-    value.every(k => Number.isInteger(k) && k >= 0 && k < spells.length)
-}
 export type Profile = {
-  loadouts: Loadout[]
   hero: number
-  deck: number[]
   gear: number[]
   coins: number
   trophies: number
@@ -399,8 +392,6 @@ export type Profile = {
 export function freshProfile(): Profile {
   return {
     hero: 0,
-    loadouts: [],
-    deck: [0, 1, 2],
     gear: [0, 0, 0],
     coins: 0,
     trophies: 0,
@@ -414,11 +405,12 @@ export function freshProfile(): Profile {
     motion: true,
   }
 }
-const saveKey = 'bramble-brawl.camp.v1'
+const saveKey = 'bramble-brawl.camp.v2'
+const previousSaveKey = 'bramble-brawl.camp.v1'
 export function readProfile(): Profile {
   const def = freshProfile()
   try {
-    const raw = JSON.parse(localStorage.getItem(saveKey) || 'null')
+    const raw = JSON.parse(localStorage.getItem(saveKey) ?? localStorage.getItem(previousSaveKey) ?? 'null')
     if (!raw || typeof raw !== 'object') return def
     const int = (n: unknown, max: number) =>
       typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(max, Math.floor(n))) : 0
@@ -427,12 +419,6 @@ export function readProfile(): Profile {
     p.hero = int(raw.hero, heroes.length - 1)
     p.unlocked = int(raw.unlocked, 2)
     p.contract = int(raw.contract, p.unlocked)
-    if (validDeck(raw.deck)) p.deck = raw.deck
-    if (Array.isArray(raw.loadouts)) {
-      p.loadouts = raw.loadouts.filter((item: Loadout | null) =>
-        item && Number.isInteger(item.hero) && item.hero >= 0 && item.hero < heroes.length && validDeck(item.deck)
-      ).slice(0, 4)
-    }
     if (Array.isArray(raw.gear) && raw.gear.length === 3)
       p.gear = raw.gear.map((n: unknown) => int(n, 5))
     p.music = raw.music === undefined ? raw.audio !== false : raw.music !== false

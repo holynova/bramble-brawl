@@ -1,7 +1,8 @@
 import { deviceArt } from './forging.ts'
 import Phaser from 'phaser'
 import { FRAME_SIZE, FOOTLINE, unitFrame, defeatFrame } from './poses.ts'
-import { art, Evo } from './data.ts'
+import type { BattleTexture } from './battle-assets.ts'
+import { Evo } from './data.ts'
 import { Battle, props, WORLD } from './simulation.ts'
 import type { Point, Fx } from './simulation.ts'
 import { actorTexture } from './builds.ts'
@@ -13,10 +14,9 @@ type Hooks = {
   wave: (n: number) => void
   hurt: () => void
   complete: () => void
-  fault: () => void
 }
 type Ink = { fx: Fx; left: number; duration: number; angle: number }
-export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion: boolean) {
+export function mountBattle(root: HTMLElement, sim: Battle, textures: BattleTexture[], hooks: Hooks, motion: boolean) {
   let paused = false,
     ready = false,
     scene: Arena | undefined,
@@ -94,42 +94,25 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
     hudTick = 0
     ending = 0
     complete = false
-    failed = false
     hitStop = 0
     nextNumber = 0
     nextRecoil = 0
     lastGem = 0
-    preload() {
-      this.load.on('loaderror', () => {
-        this.failed = true
-      })
-      const terrain = ['quarry', 'crystal', 'foundry'][sim.contract]
-      this.load.image('arena', art(terrain))
-      const manifest = [
-        'nova-wave',
-        ...Array.from({length:6},(_,i)=>'relic-'+i),
-        ...Array.from({ length: 6 }, (_, i) => 'kit-' + i),
-        ...Array.from({ length: 6 }, (_, i) => 'fx-' + i),
-        ...Array.from({ length: 6 }, (_, i) => 'evo-fx-' + i),
-        ...Array.from({ length: 4 }, (_, i) => 'prop-' + i),
-        ...Array.from({ length: 4 }, (_, i) => 'loot-' + i),
-      ]
-      for (const texture of [actorTexture(sim.hero), 'anim-3', 'anim-4', 'anim-5', 'anim-6', 'anim-7']) {
-        this.load.spritesheet(texture, art(texture), {
-          frameWidth: FRAME_SIZE,
-          frameHeight: FRAME_SIZE,
-        })
-      }
-      for (const k of manifest) this.load.image(k, art(k))
-    }
     create() {
-      if (this.failed) {
-        hooks.fault()
-        return
+      for (const asset of textures) {
+        if (asset.kind === 'sheet') {
+          this.textures.addSpriteSheet(asset.key, asset.image, { frameWidth: FRAME_SIZE, frameHeight: FRAME_SIZE })
+        } else if (asset.kind === 'image') {
+          this.textures.addImage(asset.key, asset.image)
+        }
       }
       scene = this
       this.add.image(0, 0, 'arena').setOrigin(0).setDisplaySize(WORLD.w, WORLD.h).setDepth(-10000)
-      this.cameras.main.setBounds(0, 0, WORLD.w, WORLD.h)
+      // Mirror the terrain just beyond the border so the HUD can clear the player's silhouette.
+      for (const y of [-WORLD.h, WORLD.h]) {
+        this.add.image(0, y, 'arena').setOrigin(0).setFlipY(true).setTint(0xc5ac94)
+          .setDisplaySize(WORLD.w, WORLD.h).setDepth(-10000)
+      }
       this.shadows = this.add.graphics().setDepth(0)
       this.markers = this.add.graphics().setDepth(1800)
       this.effects = this.add.graphics().setDepth(2000)
@@ -150,7 +133,11 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
     resizeWorld() {
       const w = this.scale.width,
         h = this.scale.height
-      this.cameras.main.setZoom(Math.max(w / WORLD.w, h / WORLD.h, Math.min(w / 440, h / 710), 0.68))
+      const zoom = Math.max(w / WORLD.w, h / WORLD.h, Math.min(w / 440, h / 710), 0.68)
+      const top = Math.max(0, 118 / zoom - 8)
+      const bottom = Math.max(0, 104 / zoom - 65)
+      this.cameras.main.setBounds(0, -top, WORLD.w, WORLD.h + top + bottom)
+      this.cameras.main.setZoom(zoom)
       this.cameras.main.centerOn(sim.player.x, sim.player.y)
     }
     actor(
@@ -269,6 +256,11 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
       if (f.type === 'guard') {
         sound('guard')
       }
+      if (f.type === 'warning') {
+        sound('warning')
+        return
+      }
+      if (f.type === 'fissure') sound('boss')
       if (f.type === 'stomp') {
         sound('boss')
         return
@@ -573,6 +565,24 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
         }
       }
       for (const z of sim.zones) {
+        if (z.type === 'fissure' && z.end) {
+          const end = z.end
+          const progress = 1 - z.life / (z.warning ?? 1)
+          const line = (width: number, color: number, alpha: number) => {
+            G.lineStyle(width, color, alpha).lineBetween(z.x, z.y, end.x, end.y)
+            G.fillStyle(color, alpha).fillCircle(z.x, z.y, width / 2).fillCircle(end.x, end.y, width / 2)
+          }
+          line(z.radius * 2, 0x9b263a, 0.42)
+          line(3 + (z.radius * 2 - 3) * progress, 0xff9849, 0.48)
+          const angle = Math.atan2(z.end.y - z.y, z.end.x - z.x)
+          const nx = -Math.sin(angle) * z.radius, ny = Math.cos(angle) * z.radius
+          for (const sign of [-1, 1]) {
+            G.lineStyle(2, 0xffdf92, 0.94).lineBetween(z.x + sign*nx, z.y + sign*ny, z.end.x + sign*nx, z.end.y + sign*ny)
+          }
+          G.lineStyle(2, 0xffdf92, 0.94).beginPath().arc(z.x, z.y, z.radius, angle + Math.PI/2, angle + Math.PI*1.5).strokePath()
+          G.beginPath().arc(z.end.x, z.end.y, z.radius, angle - Math.PI/2, angle + Math.PI/2).strokePath()
+          continue
+        }
         const rune = z.type === 'beacon' || z.type === 'echo'
         const c = rune
           ? 0xb28cff
@@ -599,7 +609,14 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
           }
         }
         if (z.type === 'slam') {
-          G.fillStyle(c, 0.25).fillCircle(z.x, z.y, z.radius * Math.max(0, 1 - z.life))
+          const progress = Math.max(0, 1 - z.life / (z.warning ?? 1))
+          G.fillStyle(0xf4513d, 0.12 + .18 * progress).fillCircle(z.x, z.y, z.radius * progress)
+          G.lineStyle(3, 0xffdf99, 0.92).beginPath()
+            .arc(z.x, z.y, z.radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress).strokePath()
+          for(let i=0;i<4;i++){
+            const angle=Math.PI*(.25+i*.5), dx=Math.cos(angle),dy=Math.sin(angle)
+            G.lineStyle(3,0xffedbc,.92).lineBetween(z.x+dx*(z.radius-6),z.y+dy*(z.radius-6),z.x+dx*(z.radius+2),z.y+dy*(z.radius+2))
+          }
           G.lineStyle(3, c, 0.9)
             .lineBetween(z.x - 8, z.y - 8, z.x + 8, z.y + 8)
             .lineBetween(z.x - 8, z.y + 8, z.x + 8, z.y - 8)
@@ -637,6 +654,10 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
           g = this.effects,
           a = Math.max(0, k.left / k.duration),
           u = 1 - a
+        if (f.type === 'fissure' && f.to) {
+          g.lineStyle(f.size * 2, 0xff5b2c, a * 0.65).lineBetween(f.x, f.y, f.to.x, f.to.y)
+          g.lineStyle(4 + a * 7, 0xffeb9f, a).lineBetween(f.x, f.y, f.to.x, f.to.y)
+        }
         if (f.type === 'bolt' && f.to) {
           const x2 = f.to.x,
             y2 = f.to.y - 20,

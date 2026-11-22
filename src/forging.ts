@@ -124,11 +124,6 @@ export class Foundry {
       } else this.charges.set(track, charge)
     }
   }
-  remove(track: number) {
-    this.charges.delete(track)
-    this.paths.delete(track)
-    this.constructs = this.constructs.filter((d) => d.track !== track)
-  }
   private freeze(e: Enemy, seconds: number) {
     const b = this.battle
     e.slow = Math.max(2, e.slow)

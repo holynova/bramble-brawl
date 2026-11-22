@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Battle } from '../src/simulation.ts'
+import { Battle, segmentDistance } from '../src/simulation.ts'
 import {
   freshProfile,
   contracts,
@@ -15,8 +15,9 @@ import {
 
 test('独立被动冷却、守护触发条件、唯一主动和暂停', () => {
   const p = freshProfile()
-  p.deck = [0, 1, 5]
   const b = new Battle(p, 73)
+  b.deck = [0, 1, 5]
+  b.arsenal.refreshSchools()
   b.enemies = []
   b.spawnClock = Infinity
   b.passiveTimers.fill(0)
@@ -43,7 +44,7 @@ test('独立被动冷却、守护触发条件、唯一主动和暂停', () => {
   assert.equal(b.releaseNova(), false)
   b.choose(999)
   assert.equal(b.phase, 'upgrade')
-  assert.equal(new Set(b.choices).size, 6)
+  assert.equal(new Set(b.choices).size, 3)
   b.choose(b.choices[0])
   assert.equal(b.phase, 'play')
 })
@@ -89,7 +90,6 @@ test('濒死、撤场前收益、上限以及本地存档兼容', () => {
   const mem = new Map()
   globalThis.localStorage = { getItem: (k) => mem.get(k), setItem: (k, v) => mem.set(k, v) }
   const p = freshProfile()
-  p.deck = [2, 5, 3]
   p.gear = [2, 1, 0]
   p.coins = 27
   assert.ok(saveProfile(p))
@@ -99,10 +99,9 @@ test('濒死、撤场前收益、上限以及本地存档兼容', () => {
   saveProfile(legacy)
   assert.equal(readProfile().audio, false)
   assert.equal(readProfile().music, false)
-  assert.deepEqual(readProfile().deck, p.deck)
   const bad = { ...p, deck: [3, 3, 9], contract: 10, unlocked: 1, gear: [1, -3, 9999] }
   saveProfile(bad)
-  assert.deepEqual(readProfile().deck, [0, 1, 2])
+  assert.equal(readProfile().deck, undefined)
   assert.equal(readProfile().contract, 1)
   assert.deepEqual(readProfile().gear, [1, 0, 5])
   delete globalThis.localStorage
@@ -117,40 +116,43 @@ function play(p) {
     i++
   ) {
     if (b.phase === 'upgrade') {
+      const growth = b.choices
       const order = [
-        ...b.choices.filter(isEvolution),
-        weaponTraining,
-        passiveTraining,
-        passiveTraining + 1,
-        passiveTraining + 2,
-        0,
-        1,
-        5,
-        4,
-        2,
-        3,
+        ...b.trackChoices(0),
+        ...[5, 0, 9].map(key => 100 + key),
+        ...b.deck.flatMap(key => b.trackChoices(key + 1)),
+        ...b.choices,
       ]
       if (b.player.hp < b.player.max * 0.5) order.unshift(2)
-      b.choose(order.find((id) => b.choices.includes(id)) ?? b.choices[0])
+      assert.ok(b.choose(order.find(id => growth.includes(id))))
     }
     const p0 = b.player
-    // Follow a broad circuit around the mine and move away from nearby warnings.
+    // Aim along a circuit, choosing a clear heading when a pack or warning blocks it.
     const angle = Math.atan2((p0.y - 550) / 150, (p0.x - 680) / 210) + 0.45
-    const goal = { x: 680 + Math.cos(angle) * 210, y: 550 + Math.sin(angle) * 150 }
-    let dx = goal.x - p0.x,
-      dy = goal.y - p0.y
-    for (const z of b.zones.filter((z) => z.type === 'slam')) {
-      const x = p0.x - z.x,
-        y = p0.y - z.y,
-        d = Math.hypot(x, y)
-      if (d > 2 && d < z.radius + 24) {
-        dx += (x / d) * 115
-        dy += (y / d) * 115
+    const base = Math.atan2(550 + Math.sin(angle)*150 - p0.y, 680 + Math.cos(angle)*210 - p0.x)
+    const near = b.nearby(p0, 210)
+    let best = -Infinity, dx = 0, dy = 0
+    for (let n=0; n<16; n++) {
+      const a = base + n*Math.PI/8, x = Math.cos(a), y = Math.sin(a)
+      let score = 38*Math.cos(a-base)
+      for (const ahead of [.22, .48, .82]) {
+        const at = {x:p0.x+x*b.speed*ahead, y:p0.y+y*b.speed*ahead}
+        if (at.x<102 || at.x>1258 || at.y<102 || at.y>978) score-=90
+        for (const e of near) {
+          const heading = e.dive?.angle ?? Math.atan2(p0.y-e.y,p0.x-e.x)
+          const travel = e.dive ? e.dive.range*.55 : e.speed*ahead*.7
+          const gap = Math.hypot(at.x-e.x-Math.cos(heading)*travel, at.y-e.y-Math.sin(heading)*travel)
+          score-=Math.max(0,e.radius+36-gap)*2
+        }
+        for (const z of b.zones) {
+          if ((z.type==='slam'||z.type==='fissure') && Math.abs(z.life-ahead)<.32)
+            score-=Math.max(0,z.radius+20-segmentDistance(at,z,z.end??z))*4
+        }
       }
+      if (score>best) {best=score; dx=x; dy=y}
     }
-    const d = Math.max(1, Math.hypot(dx, dy))
     if (b.nearby(p0, 94).length >= 4 || b.nearby(p0, 103).some((e) => e.type === 6)) b.releaseNova()
-    b.step(1 / 30, { x: dx / d, y: dy / d })
+    b.step(1 / 30, { x: dx, y: dy })
     b.events.length = 0
     sawElite ||= b.eliteCount > 0
     sawBoss ||= b.bossId > 0
@@ -192,7 +194,7 @@ for (let hero = 0; hero < 3; hero++) {
 }
 
 test('武器进阶和被动进阶分别生效，进行中的冷却保留进度', () => {
-  const battle = new Battle(freshProfile(), 9)
+  const battle = new Battle({ ...freshProfile(), hero: 1 }, 9)
   const upgrade = (id) => {
     battle.phase = 'upgrade'
     battle.choices = [id]
@@ -201,12 +203,12 @@ test('武器进阶和被动进阶分别生效，进行中的冷却保留进度',
   const initialDamage = battle.damage
   const full = battle.passiveCooldown(1)
   battle.passiveTimers[1] = full / 2
-  const other = battle.passiveCooldown(0)
+  const other = battle.passiveCooldown(11)
   upgrade(passiveTraining + 1)
   assert.equal(battle.passiveRanks[1], 2)
   assert.ok(battle.passiveCooldown(1) < full)
   assert.equal(battle.passiveTimers[1] / battle.passiveCooldown(1), 0.5)
-  assert.equal(battle.passiveCooldown(0), other)
+  assert.equal(battle.passiveCooldown(11), other)
   assert.equal(battle.damage, initialDamage)
   const cd = battle.passiveTimers[1]
   upgrade(weaponTraining)
@@ -265,5 +267,94 @@ test('每关六波，首领在第 4、6、8 分钟出现，原地站桩撑不到
     }
     assert.equal(player.phase,'lost')
     assert.equal(player.bossId,0)
+  }
+})
+
+test('矿印位置在警铃时锁定，直行会命中，改向能躲过；第四波出现并排截击', () => {
+  function encounter(wave, turn) {
+    const b = new Battle(freshProfile(), 24)
+    b.age = (wave-1)*contracts[0].seconds/6
+    b.enemies = []
+    b.spawnClock = b.raidTimer = b.player.fire = Infinity
+    b.eliteCount = 3
+    b.passiveTimers.fill(Infinity)
+    b.hazardTimer = 0
+    b.step(.02, {x:1,y:0})
+    const marks = b.zones.filter(z=>z.type==='slam')
+    assert.equal(b.events.filter(e=>e.type==='warning').length, 1)
+    assert.equal(marks.length, wave===4 ? 2 : 1)
+    assert.ok(marks.every(z=>z.x>b.player.x && z.life>=.95))
+    const positions=marks.map(z=>[z.x,z.y])
+    assert.equal(b.player.hp,b.player.max)
+    const input=turn?{x:0,y:1}:{x:1,y:0}
+    for(let i=0;i<28;i++) b.step(.02,input)
+    assert.deepEqual(marks.map(z=>[z.x,z.y]),positions)
+    assert.equal(b.player.hp,b.player.max)
+    for(let i=0;i<33;i++) b.step(.02,input)
+    return b.events.filter(e=>e.type==='hurt').length
+  }
+  for(const wave of [2,4]){
+    assert.equal(encounter(wave,false),1)
+    assert.equal(encounter(wave,true),0)
+  }
+})
+
+test('首领半血阶段发出错拍双落击，同一轮预警只响一次', () => {
+  const b=new Battle(freshProfile(), 46)
+  b.enemies=[]
+  b.spawnClock=b.raidTimer=b.player.fire=Infinity
+  b.passiveTimers.fill(Infinity)
+  const boss=b.spawn(6,false,210)
+  b.bossId=boss.id
+  b.bossTimer=0
+  boss.hp=boss.max*.40
+  b.step(.02,{x:1,y:0})
+  const zones=b.zones.filter(z=>z.owner===boss.id)
+  assert.equal(zones.length,2)
+  assert.ok(zones[1].life>zones[0].life+.1)
+  assert.ok(zones[1].x>zones[0].x+100)
+  assert.equal(b.events.filter(e=>e.type==='warning').length,1)
+})
+
+test('裂地长带锁定当时的走向，预警中无伤，横切可躲，留在带内只结算一次', () => {
+  for (const turn of [false,true]) {
+    const b = new Battle(freshProfile(), 55)
+    b.enemies = []
+    b.spawnClock = b.raidTimer = b.player.fire = Infinity
+    b.passiveTimers.fill(Infinity)
+    b.fissureTimer = 0
+    b.step(.02, {x:1,y:0})
+    const lane = b.zones.find(z => z.type==='fissure')
+    assert.ok(lane.end.x > b.player.x+b.speed && lane.x < b.player.x)
+    const endpoints = [lane.x,lane.y,lane.end.x,lane.end.y]
+    assert.equal(b.events.filter(f=>f.type==='warning').length,1)
+    for (let i=0; i<20; i++) b.step(.05, turn ? {x:0,y:1} : {x:1,y:0})
+    assert.deepEqual([lane.x,lane.y,lane.end.x,lane.end.y],endpoints)
+    assert.equal(b.player.hp,b.player.max)
+    for (let i=0; i<10; i++) b.step(.05,{x:0,y:0})
+    assert.equal(b.events.filter(f=>f.type==='hurt').length,turn?0:1)
+    assert.equal(b.events.filter(f=>f.type==='fissure').length,1)
+  }
+  assert.equal(segmentDistance({x:14,y:3},{x:0,y:0},{x:10,y:0}),5)
+})
+
+test('后两关的首领每三次重踏从两翼增援，狂暴后交替使用落击和裂地', () => {
+  for (const contract of [0,1,2]) {
+    const b = new Battle({...freshProfile(),contract}, 71)
+    b.enemies = []
+    b.passiveTimers.fill(Infinity)
+    b.spawnClock = b.raidTimer = b.player.fire = Infinity
+    const boss = b.spawn(6,false,210)
+    boss.hp = boss.max * .5
+    b.bossId = boss.id
+    for (let n=1; n<=3; n++) {
+      boss.strike = null
+      b.bossTimer = 0
+      b.zones = []
+      b.step(.02,{x:1,y:0})
+      assert.ok(b.zones.every(z=>z.owner===boss.id))
+      assert.equal(b.zones.filter(z=>z.type==='fissure').length,n===2?1:0)
+    }
+    assert.equal(b.enemies.filter(e=>e.type===4).length,contract*2)
   }
 })

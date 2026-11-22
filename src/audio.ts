@@ -67,6 +67,7 @@ const effects = {
     snap(5900, 720, 250, 0.88, 64),
     bell(933, 280, 0.37, 70),
   ],
+  warning: [bell(688, 100, 0.57), bell(920, 130, 0.61, 117)],
   boss: [
     snap(1490, 440, 85, 0.84),
     thump(315, 68, 315, 1.0),
@@ -112,6 +113,7 @@ const limits: Record<Effect, SoundLimits> = {
   hurt: { gap: 0.23, priority: 4, level: 0.82 },
   guard: { gap: 0.13, priority: 3, level: 0.79 },
   nova: { gap: 0.22, priority: 4, level: 0.94 },
+  warning: { gap: 0.35, priority: 4, level: 0.66 },
   boss: { gap: 0.28, priority: 4, level: 0.96 },
   spell: { gap: 0.12, priority: 3, level: 0.74 },
   click: { gap: 0.035, priority: 2, level: 0.41 },

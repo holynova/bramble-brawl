@@ -1,4 +1,4 @@
-import { isMastery, masteries, masteryStart, traditions } from './builds.ts'
+import { isMastery, masteries, masteryStart, traditions, traditionFor } from './builds.ts'
 import { Foundry } from './forging.ts'
 import { blueprints, pathsFor, promotion, signature, trackName, recruitStart, forkStart, isRecruit, isFork, forkId, forkTrack, battleSlots } from './forge.ts'
 import { Arsenal } from './arsenal.ts'
@@ -60,7 +60,9 @@ export type Turret = Point & {
 export type Fallen = Point & { id: number; type: number; elite: boolean; face: number; at: number }
 export type Zone = Point & {
   id: number
-  type: 'meteor' | 'storm' | 'slam' | 'fragment' | 'echo' | 'beacon'
+  type: 'meteor' | 'storm' | 'slam' | 'fragment' | 'echo' | 'beacon' | 'fissure'
+  end?: Point
+  warning?: number
   owner?: number
   life: number
   radius: number
@@ -84,7 +86,9 @@ export type Fx = Point & {
     | 'impact'
     | 'nova'
     | 'guard'
+    | 'fissure'
     | 'stomp'
+    | 'warning'
     | 'hammer'
   color: number
   size: number
@@ -105,6 +109,11 @@ export const props = [
 ]
 const limit = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
+export function segmentDistance(p: Point, start: Point, end: Point) {
+  const dx = end.x - start.x, dy = end.y - start.y
+  const t = limit(((p.x - start.x) * dx + (p.y - start.y) * dy) / (dx * dx + dy * dy || 1), 0, 1)
+  return Math.hypot(p.x - start.x - t * dx, p.y - start.y - t * dy)
+}
 function separate(p: Point, radius: number) {
   for (const o of props) {
     const dx = p.x - o.x,
@@ -124,6 +133,7 @@ export class Battle {
   arsenal: Arsenal
   hero: number
   contract: number
+  readonly passivePool: readonly number[]
   deck: number[]
   seed: number
   serial = 0
@@ -160,11 +170,14 @@ export class Battle {
   passiveUses = spells.map(() => 0)
   novaTimer = 0
   guardFxAt = -1
-  raidTimer = 23
+  raidTimer = 15
+  fissureTimer = 28
   raidCount = 0
   bossId = 0
   bossTimer = 3
-  hazardTimer = 10
+  bossStrikes = 0
+  hazardTimer = 4
+  hazardCount = 0
   eliteCount = 0
   damage: number
   speed: number
@@ -185,7 +198,9 @@ export class Battle {
     this.seed = seed
     this.hero = profile.hero
     this.contract = profile.contract
-    this.deck = [...profile.deck]
+    const tradition = traditionFor(this.hero)
+    this.deck = [...tradition.deck]
+    this.passivePool = [...tradition.deck, ...tradition.reserves]
     this.arsenal = new Arsenal(this)
     this.foundry = new Foundry(this)
     this.deck.forEach((key, slot) => {
@@ -216,9 +231,9 @@ export class Battle {
       p = this.player,
       difficulty = contracts[this.contract].factor
     const max = Math.round(
-      ({ 3: 32, 4: 21, 5: 93, 6: 3750 }[type] ?? 30) *
+      ({ 3: 35, 4: 23, 5: 108, 6: 4670 }[type] ?? 30) *
         difficulty *
-        (type === 6 ? 1 + this.contract * 0.47 : 1 + 0.16 * (this.wave - 1)) *
+        (type === 6 ? 1 + this.contract * 0.47 : 1 + 0.31 * (this.wave - 1)) *
         (elite ? 2.45 : 1),
     )
     const enemy: Enemy = {
@@ -229,8 +244,8 @@ export class Battle {
       hp: max,
       max,
       speed:
-        ({ 3: 62, 4: 95, 5: 46, 6: 45 }[type] ?? 50) *
-        (1 + 0.042 * this.contract + 0.029 * (this.wave - 1)),
+        ({ 3: 72, 4: 111, 5: 54, 6: 57 }[type] ?? 50) *
+        (1 + 0.10 * this.contract + 0.06 * (this.wave - 1)),
       radius: type === 6 ? 32 : type === 5 ? 18 : 12,
       elite,
       slow: 0,
@@ -283,8 +298,8 @@ export class Battle {
     else this.drops.push({ id: ++this.serial, x: e.x, y: e.y, type: 0, value: xp })
     if (e.elite) {
       this.drops.push({ id: ++this.serial, x: e.x + 10, y: e.y + 5, type: 3, value: 12 })
-    } else if (this.kills % (24 + this.contract * 8) === 0) {
-      this.drops.push({ id: ++this.serial, x: e.x + 10, y: e.y, type: 2, value: 17 })
+    } else if (this.kills % (32 + this.contract * 14) === 0) {
+      this.drops.push({ id: ++this.serial, x: e.x + 10, y: e.y, type: 2, value: 13 })
     }
     if (e.frozenUntil > this.age && this.evolutions.has(Evo.shatter)) {
       this.effect('impact', e, 2, 84)
@@ -471,6 +486,7 @@ export class Battle {
   }
   rankOf(track:number){return track===0?this.weaponRank:this.passiveRanks[track-1]}
   trackChoices(track:number):number[]{
+    if (track!==0 && !this.deck.includes(track-1)) return []
     const rank=this.rankOf(track)
     if(rank>=maxRank)return []
     if(rank===2)return [forkId(track,0),forkId(track,1)]
@@ -479,44 +495,35 @@ export class Battle {
   goalPick(){
     if(!this.goal)return
     const {track,side}=this.goal
-    if(track&&!this.deck.includes(track-1))return recruitStart+track-1
+    if (track && !this.deck.includes(track-1)) {
+      if (this.deck.length < battleSlots && this.passivePool.includes(track-1)) return recruitStart+track-1
+      return
+    }
     const choices=this.trackChoices(track)
     return choices.length===2?choices[side]:choices[0]
   }
   pinGoal(track:number,side:number){
-    if(this.phase!=='upgrade'||!Number.isInteger(track)||track<0||track>spells.length||(side!==0&&side!==1))return false
+    if(this.phase!=='play'||!Number.isInteger(track)||track<0||track>spells.length||(side!==0&&side!==1))return false
     const owned=!track||this.deck.includes(track-1),path=this.foundry.paths.get(track)
+    if(!owned&&(!this.passivePool.includes(track-1)||this.deck.length>=battleSlots))return false
     if(owned&&(this.rankOf(track)>=maxRank||(path!==undefined&&path!==pathsFor(this.hero,track)[side])))return false
     this.goal={track,side}
-    this.choices=this.goalFirst(this.choices)
     return true
-  }
-  private goalFirst(picks:number[]){
-    const pinned=this.goalPick()
-    if(pinned===undefined)return picks
-    const sameTrack=(id:number)=>isFork(id)&&isFork(pinned)&&forkTrack(id)===forkTrack(pinned)
-    return [pinned,...picks.filter(id=>id!==pinned&&!sameTrack(id))].slice(0,6)
   }
   availableGrowth(){
     const owned=[0,...this.deck.map(k=>k+1)].flatMap(track=>this.trackChoices(track))
-    const recruits=spells.flatMap((_,k)=>this.deck.includes(k)?[]:[recruitStart+k])
+    const recruits=this.deck.length>=battleSlots?[]:this.passivePool.filter(k=>!this.deck.includes(k)).map(k=>recruitStart+k)
     const mastery=this.level>=6&&this.level%3===0&&!this.arsenal.mastery
       ?traditions.flatMap((t,i)=>this.arsenal.schools.has(t.key)?[masteryStart+i]:[]):[]
     return [...owned,...recruits,...mastery]
   }
-  choose(index:number,replace?:number){
-    if(this.phase!=='upgrade')return false
-    if(index<6 ? !this.choices.includes(index) : !this.availableGrowth().includes(index))return false
+  choose(index:number){
+    if(this.phase!=='upgrade' || !this.choices.includes(index))return false
+    if(index>=6 && !this.availableGrowth().includes(index))return false
     if(isRecruit(index)){
       const key=index-recruitStart
-      if(this.deck.length>=battleSlots){
-        if(replace===undefined||!this.deck.includes(replace))return false
-        if(this.goal?.track===replace+1)this.goal=undefined
-        this.foundry.remove(replace+1)
-        this.evolutions.delete(spellEvolution[replace])
-        this.passiveRanks[replace]=1
-        this.deck[this.deck.indexOf(replace)]=key
-      }else this.deck.push(key)
+      this.deck.push(key)
+      if(this.deck.length===battleSlots&&this.goal?.track&&!this.deck.includes(this.goal.track-1))this.goal=undefined
       this.passiveRanks[key]=1;this.passiveTimers[key]=.6;this.passiveUses[key]=0
       this.arsenal.refreshSchools()
     }else if(isMastery(index)){
@@ -575,20 +582,30 @@ export class Battle {
     }
     return upgrades[id]
   }
-  growthChoices(){
-    const all=this.availableGrowth(),draw=(pool:number[])=>pool.splice(Math.floor(this.random()*pool.length),1)[0]
-    const weapon=this.trackChoices(0)[0]
-    const owned=this.deck.flatMap(k=>this.trackChoices(k+1).slice(0,1))
-    const recruits=all.filter(isRecruit)
-    const picks=all.filter(isMastery).slice(0,2)
-    if(weapon!==undefined)picks.unshift(weapon)
-    if(owned.length)picks.push(draw(owned))
-    // Preserve two discovery slots even when the starting build still has several upgrades.
-    while(recruits.length && picks.filter(isRecruit).length<2)picks.push(draw(recruits))
-    while(picks.length<5&&owned.length)picks.push(draw(owned))
-    const supports=[0,1,2,3,4,5]
-    while(picks.length<6)picks.push(draw(supports))
-    return this.goalFirst(picks)
+  growthChoices() {
+    const all = this.availableGrowth()
+    const recruits = all.filter(isRecruit)
+    const owned = all.filter(id => !isRecruit(id) && !isMastery(id))
+    const supports = [0, 1, 2, 3, 4, 5]
+    const picks: number[] = []
+    const draw = (pool: number[]) => {
+      const eligible = pool.filter(id => !picks.includes(id))
+      if (eligible.length) picks.push(eligible[Math.floor(this.random() * eligible.length)])
+    }
+
+    const goal = this.goalPick()
+    if (goal !== undefined) picks.push(goal)
+    else if (this.level === 2 || this.random() < 0.48) draw(this.trackChoices(0))
+    if (!picks.length) draw(owned)
+
+    draw(all.filter(isMastery))
+    if (picks.length < 2 && isFork(picks[0])) draw(this.trackChoices(forkTrack(picks[0])))
+    if (picks.length < 2) draw(owned)
+    // Rotate discovery and supplies while keeping an equipped skill in play.
+    if (picks.length < 3 && this.level % 4 !== 0 && !picks.some(isRecruit)) draw(recruits)
+    if (picks.length < 3 && this.level % 4 !== 0) draw(owned)
+    while (picks.length < 3) draw(supports)
+    return picks
   }
   collect(dt: number) {
     const p = this.player
@@ -624,6 +641,41 @@ export class Battle {
       this.need = Math.min(74, Math.round(this.need * 1.15 + 1))
       this.choices = this.growthChoices()
       this.phase = 'upgrade'
+    }
+  }
+  private markImpact(x: number, y: number, radius: number, windup: number, owner?: number) {
+    this.zones.push({
+      type: 'slam', id: ++this.serial, owner,
+      x: limit(x, 80, WORLD.w - 80), y: limit(y, 80, WORLD.h - 80),
+      radius, life: windup, warning: windup, tick: 0,
+    })
+  }
+  private markFissure(input: Point, windup: number, owner?: number) {
+    const length = Math.hypot(input.x, input.y)
+    const dx = length > 0.05 ? input.x / length : this.player.face
+    const dy = length > 0.05 ? input.y / length : 0
+    const reach = this.speed * windup + 46
+    this.zones.push({
+      type: 'fissure', id: ++this.serial, owner,
+      x: this.player.x - dx * 60, y: this.player.y - dy * 60,
+      end: { x: this.player.x + dx * reach, y: this.player.y + dy * reach },
+      radius: 28 + this.contract * 4, life: windup, warning: windup, tick: 0,
+    })
+  }
+  private cutOff(input: Point, windup: number, radius: number, wide: boolean, owner?: number) {
+    const length = Math.hypot(input.x, input.y)
+    const moving = length > 0.05
+    const dx = moving ? input.x / length : this.player.face
+    const dy = moving ? input.y / length : 0
+    const lead = moving ? this.speed * windup * Math.min(1, length) * 0.84 : 0
+    const x = this.player.x + dx * lead, y = this.player.y + dy * lead
+    if (wide && moving) {
+      for (const side of [-1, 1]) {
+        const offset = side * radius * 0.72
+        this.markImpact(x - dy * offset, y + dx * offset, radius, windup, owner)
+      }
+    } else {
+      this.markImpact(x, y, radius, windup, owner)
     }
   }
   step(dt: number, input: Point) {
@@ -665,18 +717,19 @@ export class Battle {
     this.spawnClock -= dt
     const cap = 48 + 6 * this.contract + this.wave * 2
     if (this.spawnClock <= 0 && this.enemies.length < cap) {
-      this.spawnClock = (this.bossId ? 0.78 : 1.03 - 0.58 * pressure) / c.factor
+      this.spawnClock = (this.bossId ? 0.50 : 0.88 - 0.53 * pressure) / c.factor
       const r = this.random()
       this.spawn(this.wave >= 3 && r > 0.79 - 0.04 * pressure ? 5 : r < 0.24 + 0.07 * pressure ? 4 : 3)
     }
     this.raidTimer -= dt
     if (this.raidTimer <= 0 && !this.bossId) {
       this.raidCount++
-      this.raidTimer = (30 - 10 * pressure) / Math.sqrt(c.factor)
-      const angle = this.random() * Math.PI * 2
-      const count = 2 + Math.floor(this.wave * 0.8) + this.contract
+      this.raidTimer = (21 - 8 * pressure) / Math.sqrt(c.factor)
+      const angle = this.wave>=2 && length>0.1 && this.raidCount%2===0
+        ? Math.atan2(input.y,input.x) : this.random()*Math.PI*2
+      const count = 3 + Math.floor(this.wave * 1.15) + this.contract
       for (let i = 0; i < count && this.enemies.length < cap; i++) {
-        const flank = this.wave >= 4 && i % 2 ? Math.PI : 0
+        const flank = this.wave >= 3 && i % 2 ? Math.PI : 0
         this.spawn(
           this.wave >= 3 && i % 3 === 0 ? 5 : 4,
           false,
@@ -684,7 +737,7 @@ export class Battle {
           angle + flank + (this.random() - 0.5) * 0.8,
         )
       }
-      this.effect('text', p, 0xffcb74, 1, undefined, this.wave >= 4 ? '双翼夹击' : '蝠群突袭')
+      this.effect('text', p, 0xffcb74, 1, undefined, this.wave >= 3 ? '双翼夹击' : '蝠群突袭')
     }
     if (
       this.eliteCount < 3 + this.contract &&
@@ -841,7 +894,7 @@ export class Battle {
         d < 180 &&
         dives < 1 + this.contract + Math.floor(this.wave / 3)
       ) {
-        const lead = length > 0.05 ? (0.25 * this.speed) / Math.max(length, 1) : 0
+        const lead = length > 0.05 ? (0.37 * this.speed) / Math.max(length, 1) : 0
         e.dive = {
           angle: Math.atan2(dy + input.y * lead, dx + input.x * lead),
           start: this.age,
@@ -862,7 +915,7 @@ export class Battle {
           e.y = limit(e.y + Math.sin(dive.angle) * travel, 80, WORLD.h - 80)
           if (!dive.hit && distance(e, p) < 25) {
             dive.hit = true
-            this.takeHit(12 * c.factor)
+            this.takeHit(17 * c.factor)
           }
         }
         if (t >= 0.82) {
@@ -873,18 +926,23 @@ export class Battle {
       }
       if (e.type === 6) this.bossTimer -= dt
       if (!e.strike && e.type === 6 && this.bossTimer <= 0) {
-        this.bossTimer = (e.hp < e.max * 0.45 ? 2.35 : 3.65) / (1 + 0.12 * this.contract)
+        const enraged = e.hp < e.max * 0.55
+        this.bossTimer = (enraged ? 2.45 : 3.35) / (1 + 0.10 * this.contract)
+        this.bossStrikes++
+        if (this.contract > 0 && this.bossStrikes % 3 === 0) {
+          // Escorts approach from the sides, outside immediate attack range.
+          const front = length > 0.05 ? Math.atan2(input.y, input.x) : Math.atan2(dy, dx)
+          const escorts = this.contract === 2 ? 4 : 2
+          for (let i = 0; i < escorts && this.enemies.length < cap; i++) {
+            const flank = (i % 2 ? -1 : 1) * (0.78 + 0.35 * Math.floor(i / 2))
+            this.spawn(4, false, 240, front + flank)
+          }
+        }
         e.strike = this.strike(e, p, 0, 1, 0.25, 'slam')
-        this.zones.push({
-          x: p.x,
-          y: p.y,
-          id: ++this.serial,
-          type: 'slam',
-          owner: e.id,
-          life: 1 + dt,
-          radius: 80 + this.contract * 8,
-          tick: 0,
-        })
+        this.markImpact(p.x, p.y, 80 + this.contract * 7, 1 + dt, e.id)
+        if (enraged && this.bossStrikes % 2 === 0) this.markFissure(input, 1.25, e.id)
+        if (enraged && this.bossStrikes % 2 === 1) this.cutOff(input, 1.24, 58 + this.contract * 4, false, e.id)
+        this.effect('warning', p, 0, 1)
       }
       if (!e.strike && this.age >= e.readyAt && d < e.radius + 24) {
         const windup = e.type === 4 ? 0.13 : e.type === 5 ? 0.24 : 0.19
@@ -898,15 +956,20 @@ export class Battle {
         if (!a.fired && elapsed >= a.windup) {
           a.fired = true
           if (a.kind === 'basic' && d < e.radius + 28)
-            this.takeHit((e.type === 6 ? 21 : e.type === 5 ? 13 : 8) * c.factor)
+            this.takeHit((e.type === 6 ? 24 : e.type === 5 ? 16 : 10) * c.factor)
         }
         if (elapsed >= a.windup + a.recovery) e.strike = null
       } else {
         const before = { x: e.x, y: e.y }
         const step = e.speed * dt * (e.slow > 0 ? 0.35 : 1)
         if (d > e.radius + 4) {
-          e.x += (dx / d) * step
-          e.y += (dy / d) * step
+          // A portion of the ground pack runs ahead to block a steady escape route.
+          const flank = this.wave >= 2 && e.type === 3 && e.id % 3 === 0 && d > 68
+          const lead = flank ? Math.min(105, d * 0.57) / Math.max(length, 1) : 0
+          const aimX = dx + input.x * lead, aimY = dy + input.y * lead
+          const aimLength = Math.hypot(aimX, aimY) || 1
+          e.x += (aimX / aimLength) * step
+          e.y += (aimY / aimLength) * step
         }
         if (Math.abs(dx) > 5) e.face = dx < 0 ? -1 : 1
         if (e.type !== 4) separate(e, e.radius * 0.5)
@@ -937,31 +1000,24 @@ export class Battle {
           }
         }
       }
-    if (this.wave >= (this.contract === 0 ? 4 : 2)) {
+    if (!this.bossId) {
+      this.fissureTimer -= dt
+      if (this.fissureTimer <= 0) {
+        this.markFissure(input, 1.22 - 0.06 * this.contract)
+        this.effect('warning', p, 0, 1)
+        this.fissureTimer = 20 - pressure * 6 - this.contract * 2
+      }
+    }
+    if (this.wave >= 2 && !this.bossId) {
       this.hazardTimer -= dt
       if (this.hazardTimer <= 0) {
-        this.hazardTimer = 14 - this.contract * 2 - pressure * 4
-        this.zones.push({
-          x: p.x,
-          y: p.y,
-          id: ++this.serial,
-          type: 'slam',
-          life: Math.max(0.76, 1.1 - this.contract * 0.07 - pressure * 0.12),
-          radius: this.contract === 2 ? 69 : 53,
-          tick: 0,
-        })
-        if (this.contract >= 1 && this.wave >= 4) {
-          const lead = length > 0.05 ? { x: input.x / length, y: input.y / length } : { x: p.face, y: 0 }
-          this.zones.push({
-            id: ++this.serial,
-            type: 'slam',
-            x: limit(p.x + lead.x * this.speed * 0.94, 80, WORLD.w - 80),
-            y: limit(p.y + lead.y * this.speed * 0.94, 80, WORLD.h - 80),
-            life: 1,
-            radius: 57 + 8 * this.contract,
-            tick: 0,
-          })
-        }
+        this.hazardCount++
+        const windup = 1.18 - 0.055 * this.contract - 0.10 * pressure
+        const radius = 51 + 4 * this.contract + 6 * pressure
+        if (this.hazardCount % 3 === 2) this.markImpact(p.x, p.y, radius + 9, windup)
+        else this.cutOff(input, windup, radius, this.wave >= 4)
+        this.effect('warning', p, 0, 1)
+        this.hazardTimer = 12.8 - this.contract * 1.25 - pressure * 4.4
       }
     }
     const fragments: Zone[] = []
@@ -1014,6 +1070,10 @@ export class Battle {
         for (const e of this.nearby(z, z.radius)) this.arsenal.scorched(e)
         this.area(z, z.radius, 44 * this.passivePower(2), 0xffae42)
         this.effect('impact', z, 0, 85)
+      }
+      if (z.life <= 0 && z.type === 'fissure' && z.end) {
+        this.effect('fissure', z, 0xffbb67, z.radius, z.end)
+        if (segmentDistance(p, z, z.end) <= z.radius + 8) this.takeHit(32 * c.factor)
       }
       if (z.life <= 0 && z.type === 'slam') {
         this.effect('stomp', z, 0xff4736, z.radius)

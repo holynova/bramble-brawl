@@ -2,9 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Battle } from '../src/simulation.ts'
 import { heroes, spells, freshProfile, weaponTraining, passiveTraining } from '../src/data.ts'
+import { traditions } from '../src/builds.ts'
 import { pathsFor, signature, blueprints, forkId, isRecruit, recruitStart } from '../src/forge.ts'
 function arena(hero = 0, deck = [0, 1, 2]) {
-  const b = new Battle({ ...freshProfile(), hero, deck: [...deck] }, 917)
+  const b = new Battle({ ...freshProfile(), hero }, 917)
+  b.deck = [...deck]
+  b.arsenal.refreshSchools()
   b.enemies = []
   b.player.fire = b.spawnClock = b.raidTimer = b.hazardTimer = Infinity
   b.passiveTimers.fill(Infinity)
@@ -21,10 +24,11 @@ function foe(b, x = 64, y = 0, hp = 3000) {
   Object.assign(e, { x: b.player.x + x, y: b.player.y + y, hp, max: hp, speed: 0 })
   return e
 }
-function choose(b, id, swap) {
+function choose(b, id) {
   b.phase = 'upgrade'
-  b.choices = b.growthChoices()
-  assert.equal(b.choose(id, swap), true)
+  assert.ok(b.availableGrowth().includes(id))
+  b.choices = [id]
+  assert.equal(b.choose(id), true)
   assert.equal(b.phase, 'play')
 }
 function rank(b, track, side, last = 5) {
@@ -35,7 +39,7 @@ test('六英雄与十八被动的 48 条起点至终式路线均可正常升满�
   for (let source = 0; source < 24; source++)
     for (const side of [0, 1]) {
       const track = source < 6 ? 0 : source - 5,
-        b = arena(source < 6 ? source : 0, track ? [track - 1] : [0, 1, 2])
+        b = new Battle({...freshProfile(), hero: track ? traditions.find(t=>t.deck.includes(track-1)).hero : source}, 917)
       choose(b, weaponTraining + track)
       assert.ok(b.evolutions.has(signature(b.hero, track)))
       assert.deepEqual(b.trackChoices(track), [forkId(track, 0), forkId(track, 1)])
@@ -55,28 +59,29 @@ test('六英雄与十八被动的 48 条起点至终式路线均可正常升满�
   assert.equal(paths.size, 12)
   assert.equal(heroes.length + spells.length, 24)
 })
-test('完整技能池研习、扩容、替换与重新研习；不消耗营地搭配，重新计算流派', () => {
-  const profile = { ...freshProfile(), hero: 3, deck: [6, 2, 4] },
-    b = new Battle(profile, 5)
-  assert.equal(b.availableGrowth().filter(isRecruit).length, 15)
-  assert.equal(b.growthChoices().length, 6)
-  assert.equal(b.growthChoices().filter(isRecruit).length, 2)
-  choose(b, 100 + 7)
-  assert.ok(b.arsenal.schools.has('fire'))
-  choose(b, 100 + 16)
+test('职业池可研习两项，满槽时保留已投入的被动与路线', () => {
+  const profile = { ...freshProfile(), hero: 3 }
+  const b = new Battle(profile, 5)
+  assert.equal(b.availableGrowth().filter(isRecruit).length, 6)
+  assert.equal(b.growthChoices().filter(isRecruit).length, 1)
+  choose(b, recruitStart + 7)
   rank(b, 8, 0)
+  assert.ok(b.arsenal.schools.has('wind'))
+  assert.ok(b.pinGoal(5, 1))
+  choose(b, recruitStart + 3)
+  assert.equal(b.goal, undefined)
+  assert.equal(b.pinGoal(5, 1), false)
   b.phase = 'upgrade'
-  assert.equal(b.choose(100 + 17), false)
-  assert.equal(b.choose(100 + 17, 14), false)
-  choose(b, 100 + 17, 7)
-  assert.equal(b.deck.length, 5)
-  assert.ok(!b.arsenal.schools.has('fire'))
-  assert.ok(!b.foundry.paths.has(8))
-  assert.ok(!b.evolutions.has(signature(b.hero, 8)))
-  choose(b, 100 + 7, 17)
-  assert.equal(b.rankOf(8), 1)
-  assert.equal(b.passiveUses[7], 0)
-  assert.deepEqual(profile.deck, [6, 2, 4])
+  assert.deepEqual(b.availableGrowth().filter(isRecruit), [])
+  assert.equal(new Set(b.growthChoices()).size, 3)
+  assert.equal(b.choose(recruitStart + 17), false)
+  assert.equal(b.phase, 'upgrade')
+  assert.deepEqual(b.deck,[6,5,12,7,3])
+  assert.equal(b.rankOf(8), 5)
+  assert.equal(b.foundry.paths.get(8), pathsFor(b.hero,8)[0])
+  assert.ok(b.evolutions.has(signature(b.hero,8)))
+  assert.ok(b.arsenal.schools.has('wind'))
+  assert.deepEqual(new Battle(profile,5).deck,[6,5,12])
 })
 test('走位、架势和收割型改造会在冷却过半后分别提前激活；没有满足动作时不会提前', () => {
   for (const [key, side, mode] of [
@@ -277,13 +282,11 @@ test('六个新被动自动触发：镜像分身、跟身火轮、吸晶魂灯�
   }
 })
 test('追踪未携带技能后保留同一目标，依次推荐研习、改造、指定岔路、进阶、满阶终式', () => {
-  const b = arena(),
-    key = 16,
+  const b = new Battle(freshProfile(), 5),
+    key = 6,
     track = key + 1
-  b.phase = 'upgrade'
-  b.choices = b.growthChoices()
   assert.ok(b.pinGoal(track, 1))
-  assert.equal(b.choices[0], recruitStart + key)
+  assert.deepEqual(b.choices, [])
   for (const id of [
     recruitStart + key,
     weaponTraining + track,
@@ -294,8 +297,8 @@ test('追踪未携带技能后保留同一目标，依次推荐研习、改造�
     b.phase = 'upgrade'
     b.choices = b.growthChoices()
     assert.equal(b.choices[0], id)
-    assert.equal(b.choices.length, 6)
-    assert.equal(new Set(b.choices).size, 6)
+    assert.equal(b.choices.length, 3)
+    assert.equal(new Set(b.choices).size, 3)
     assert.ok(b.choose(id))
   }
   assert.equal(b.goal, undefined)
@@ -327,5 +330,58 @@ test('专属武器分支直接改写主攻击，双枪能扇射或前后同射�
     const bottle = flask.arsenal.devices.find((v) => v.kind === 'flask')
     assert.equal(bottle.x, side === 0 ? flask.player.x + 80 : target.x)
     assert.equal(bottle.radius > 60, side === 1)
+  }
+})
+
+test('每级三张不同实牌，未发出的合法技能不能选，查看路线也不能改动当前牌面', () => {
+  for (const hero of heroes.keys()) {
+    const b = new Battle({...freshProfile(), hero}, 42)
+    const discovery = new Set()
+    for (let i=0; i<120; i++) {
+      b.level = 2 + i % 17
+      const cards = b.growthChoices()
+      assert.equal(cards.length, 3)
+      assert.equal(new Set(cards).size, 3)
+      assert.ok(cards.every(id => id < 6 || b.availableGrowth().includes(id)))
+      cards.filter(isRecruit).forEach(id => discovery.add(id-recruitStart))
+      assert.ok(cards.every(id => b.upgradeInfo(id)?.name))
+    }
+    assert.deepEqual(discovery, new Set(traditions.find(t=>t.hero===hero).reserves))
+    b.xp = b.need
+    b.collect(0)
+    const hand = [...b.choices]
+    const unseen = b.availableGrowth().find(id => !hand.includes(id))
+    assert.equal(b.choose(unseen), false)
+    assert.equal(b.pinGoal(0, 1), false)
+    assert.deepEqual(b.choices, hand)
+    assert.ok(b.choose(hand[0]))
+    assert.equal(b.choose(hand[1]), false)
+  }
+})
+
+test('三阶两条路线各是一张可立即生效的牌；所有进阶用尽时可继续三选一', () => {
+  for (const side of [0, 1]) {
+    const b = new Battle(freshProfile(), 44)
+    assert.ok(b.pinGoal(0, side))
+    choose(b, weaponTraining)
+    b.xp = b.need
+    b.collect(0)
+    const forks = b.trackChoices(0)
+    assert.ok(forks.every(id => b.choices.includes(id)))
+    assert.equal(b.choices.length, 3)
+    assert.equal(b.choices[0], forks[side])
+    assert.ok(b.choose(forks[side]))
+    assert.equal(b.rankOf(0), 3)
+    assert.equal(b.foundry.paths.get(0), pathsFor(b.hero, 0)[side])
+    b.weaponRank = 5
+    b.passiveRanks.fill(5)
+    b.deck = b.passivePool.slice(0, 5)
+    b.arsenal.mastery = 'wind'
+    b.xp = b.need
+    b.collect(0)
+    assert.equal(b.choices.length, 3)
+    assert.equal(new Set(b.choices).size, 3)
+    assert.ok(b.choices.every(id => id>=0 && id<6))
+    assert.ok(b.choose(b.choices[2]))
   }
 })
