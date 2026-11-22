@@ -16,9 +16,11 @@ import {
   readProfile,
   saveProfile,
 } from './data.ts'
+import { traditions, activeTraditions, weaponSchools, passiveSchools, masteries, isMastery, masteryStart } from './builds.ts'
+import type { School } from './builds.ts'
 import { Battle } from './simulation.ts'
 import { ico } from './icons.ts'
-import { sound, audioEnabled, unlockAudio, battleMusic, musicEnabled, audioStatus } from './audio.ts'
+import { sound, audioEnabled, unlockAudio, battleMusic, musicEnabled, audioStatus, weaponSounds } from './audio.ts'
 import type { mountBattle } from './battle.ts'
 
 const app = document.querySelector<HTMLElement>('#app')!,
@@ -30,6 +32,7 @@ let sim: Battle | null = null,
   screen: 'camp' | 'loading' | 'battle' = 'camp'
 let panel = '',
   previewSpell = -1,
+  previewBuild = 0,
   lastFocus: HTMLElement | null = null,
   session = 0,
   settled = false,
@@ -110,9 +113,10 @@ function camp() {
     '</strong><p>' +
     h.desc +
     '</p></section>' +
-    '<section class="roster"><h3>出战英雄 <small>' +
+    '<section class="roster"><div class="roster-head"><h3>出战英雄 <small>' +
     String(p.hero + 1).padStart(2, '0') +
-    ' / 03</small></h3><div class="portraits">' +
+    ' / ' + String(heroes.length).padStart(2,'0') +
+    '</small></h3><button class="guide-entry" data-do="builds">流派手册</button></div><div class="portraits">' +
     heroes
       .map(
         (v, i) =>
@@ -163,6 +167,7 @@ function camp() {
 }
 function dialog(title: string, body: string, cls = '', dismiss = true) {
   if (!panel) lastFocus = document.activeElement as HTMLElement
+  toast.classList.remove('show')
   dialogs.innerHTML =
     '<div class="scrim"><section class="sheet ' +
     cls +
@@ -188,62 +193,72 @@ function closeDialog() {
   lastFocus?.isConnected && lastFocus.focus({ preventScroll: true })
   lastFocus = null
 }
+function badges(keys: School[]) {
+  return keys.map(key => {
+    const t = traditions.find(t => t.key === key)!
+    return '<span class="school-chip" style="--tone:'+t.color+'">'+t.name+'</span>'
+  }).join('')
+}
+function schoolSummary(hero: number, deck: number[]) {
+  const active = activeTraditions(hero, deck)
+  return active.length ? badges(active.map(t => t.key)) : '<span class="no-school">凑齐两个同系来源可激活联动</span>'
+}
+function showBuilds() {
+  const t = traditions[previewBuild], h = heroes[t.hero], mastery = masteries[t.key]
+  const equipped = p.hero === t.hero && p.deck.join() === t.deck.join()
+  const tabs = traditions.map((v,i) =>
+    '<button class="tradition-tab" style="--tone:'+v.color+'" data-do="inspectBuild" data-i="'+i+'" aria-pressed="'+(i===previewBuild)+'">'+
+    img(masteries[v.key].art)+'<b>'+v.name+'</b></button>').join('')
+  const slots = t.deck.map(k => '<span>'+img('spell-'+k)+'<b>'+spells[k].short+'</b></span>').join('')
+  const body = '<div class="tradition-tabs">'+tabs+'</div><article class="tradition-feature" style="--tone:'+t.color+'">'+
+    '<div class="tradition-art">'+img('hero-'+t.hero,'',h.name)+'</div><div class="tradition-heading"><small>'+h.name+' · '+h.role+
+    '</small><h3>'+t.name+'</h3><p>'+t.tactics+'</p></div></article><div class="build-slots">'+slots+'</div>'+
+    '<dl class="build-rules"><dt>同系 ×2</dt><dd>'+t.effect+'</dd><dt>升级</dt><dd>'+t.priority+
+    '</dd><dt>六级专精</dt><dd><b>'+mastery.name+'</b> · '+mastery.desc+'</dd></dl>'+
+    '<button class="mini gold apply-build" data-do="equipBuild">'+(equipped?'已装备 · 返回营地':'采用这套出战')+'</button>'+
+    '<div class="guide-links"><button class="custom-build" data-do="deck">自配被动</button><button class="custom-build" data-do="loadouts">我的搭配</button></div>'
+  dialog('流派手册', body, 'guide-sheet')
+  panel = 'builds'
+}
+function showLoadouts() {
+  const saved = p.loadouts.some(v => v.hero === p.hero && v.deck.join() === p.deck.join())
+  const strip = (keys: number[]) => keys.map(k=>img('spell-'+k,'',spells[k].name)).join('')
+  const rows = p.loadouts.map((v,i) => '<div class="saved-row">'+img('face-'+v.hero)+
+    '<div><b>'+heroes[v.hero].name+'</b><small>'+v.deck.map(k=>spells[k].short).join(' · ')+'</small></div>'+
+    '<button class="mini" data-do="useSaved" data-i="'+i+'">装备</button>'+
+    '<button class="custom-build" data-do="removeSaved" data-i="'+i+'" aria-label="移除这套搭配">移除</button></div>').join('')
+  const body = '<div class="library-title"><b>当前出战 · '+heroes[p.hero].name+'</b><span>'+p.loadouts.length+' / 4</span></div>'+
+    '<div class="saved-strip">'+strip(p.deck)+'</div><button class="mini gold apply-build" data-do="saveLoadout" '+
+    (saved || p.loadouts.length>=4 ? 'disabled' : '')+'>'+(saved ? '这套搭配已收藏' : p.loadouts.length>=4 ? '收藏已满' : '收藏当前搭配')+'</button>'+rows+
+    '<div class="guide-links"><button class="custom-build" data-do="deck">自配被动</button><button class="custom-build" data-do="builds">流派手册</button></div>'
+  dialog('我的搭配',body)
+  panel = 'loadouts'
+}
 function showDeck() {
   if (panel !== 'deck') previewSpell = -1
-  const index = previewSpell,
-    selected = index >= 0 ? p.deck.includes(index) : false
-  const body =
-    '<p class="intro">从六种被动中携带三种，各自冷却、自动触发。升至三阶可选进化。</p><div class="card-grid">' +
-    spells
-      .map(
-        (s, i) =>
-          '<button class="collect-card ' +
-          (p.deck.includes(i) ? 'equipped ' : '') +
-          (i === index ? 'viewing' : '') +
-          '" style="--card:' +
-          s.color +
-          '" data-do="inspect" data-i="' +
-          i +
-          '">' +
-          cardFace(i) +
-          '<strong>' +
-          s.name +
-          '</strong><small>' +
-          (p.deck.includes(i) ? '已携带' : s.type) +
-          '</small></button>',
-      )
-      .join('') +
-    '</div>' +
-    (index >= 0
-      ? '<section class="card-detail"><b>' +
-        spells[index].name +
-        ' · ' +
-        spells[index].cooldown +
-        ' 秒冷却</b><p>' +
-        spells[index].desc +
-        '</p><p class="evo-preview"><strong>可进化为' +
-        upgrades[spellEvolution[index]].name +
-        '</strong> · ' +
-        upgrades[spellEvolution[index]].desc +
-        '</p>' +
-        (selected
-          ? ''
-          : '<div class="replace"><span>替换</span>' +
-            p.deck
-              .map(
-                (key, slot) =>
-                  '<button class="mini" data-do="replace" data-i="' +
-                  slot +
-                  '">' +
-                  spells[key].short +
-                  '</button>',
-              )
-              .join('') +
-            '</div>') +
-        '</section>'
-      : '')
-  dialog('出战被动', body, 'deck-sheet')
-  panel = 'deck'
+  const index = previewSpell
+  const summary = '<div class="deck-summary"><div><b>'+heroes[p.hero].name+' · 当前联动</b>'+
+    '<button class="custom-build" data-do="builds">流派手册</button></div>'+schoolSummary(p.hero,p.deck)+'<p>武器所属 · '+weaponSchools[p.hero].map(key=>traditions.find(t=>t.key===key)!.name).join('、')+'</p></div>'
+  let detail = ''
+  if (index >= 0) {
+    const spell = spells[index], evo=upgrades[spellEvolution[index]], current = activeTraditions(p.hero,p.deck)
+    const swaps = p.deck.includes(index) ? '' : '<div class="swap-list">'+p.deck.map((key,slot) => {
+      const proposed = p.deck.map((v,n)=> n === slot ? index : v)
+      const next = activeTraditions(p.hero,proposed)
+      const changes = [...next.filter(t=>!current.includes(t)).map(t=>'激活 '+t.name),
+        ...current.filter(t=>!next.includes(t)).map(t=>'失去 '+t.name)]
+      return '<button data-do="replace" data-i="'+slot+'"><b>换下'+spells[key].short+'</b><small>'+
+        (changes.join(' · ') || '联动不变')+'</small></button>'
+    }).join('')+'</div>'
+    detail = '<section class="card-detail"><div class="detail-name">'+img('spell-'+index)+'<div><b>'+spell.name+
+      ' · '+spell.cooldown+' 秒</b><div>'+badges(passiveSchools[index])+'</div></div></div><p>'+spell.desc+'</p>'+
+      '<p class="evo-preview"><strong>'+evo.name+'</strong> · '+evo.desc+'</p>'+swaps+'</section>'
+  }
+  const grid = spells.map((skill,i) => '<button class="collect-card '+(p.deck.includes(i)?'equipped ':'')+
+    (i===index?'viewing':'')+'" style="--card:'+skill.color+'" data-do="inspect" data-i="'+i+'" aria-label="'+skill.name+'">'+
+    cardFace(i)+'<strong>'+skill.name+'</strong><small>'+(p.deck.includes(i)?'已携带':skill.type)+'</small></button>').join('')
+  dialog('出战被动',summary+detail+'<div class="library-title"><b>被动库</b><span>携带 3 / '+spells.length+'</span></div><div class="card-grid">'+grid+'</div>','deck-sheet')
+  panel='deck'
 }
 function showForge() {
   dialog(
@@ -332,7 +347,7 @@ function showRecords() {
   panel = 'records'
 }
 function howTo() {
-  return '<div class="how"><p><b>走位</b> 拖动战场移动，武器自动瞄准。桌面可用 WASD 或方向键。</p><p><b>震荡爆发</b> 轻点右下按钮或按空格，击退近敌，短暂护身。冷却 18 秒。</p><p><b>成长</b> 三个被动各自冷却、自动触发。拾取绿晶，武器和被动升到三阶后可选专属进化。</p></div>'
+  return '<div class="how"><p><b>走位</b> 拖动战场移动，武器自动瞄准。桌面可用 WASD 或方向键。</p><p><b>震荡爆发</b> 轻点右下按钮或按空格，击退近敌，短暂护身。冷却 18 秒。</p><p><b>成长</b> 三个被动自动触发，武器和被动三阶可选进化。武器和被动中凑齐两个同系来源即激活联动。从六级起，每三个等级有一次选择本局唯一专精的机会。</p></div>'
 }
 function showSettings() {
   dialog(
@@ -358,7 +373,7 @@ function showSettings() {
         .join('') +
       '</div><button class="mini sound-check" data-do="audition">' +
       (p.audio ? '试听武器音效' : '开启声音并试听') +
-      '</button><h3 class="subhead">荒野手册</h3><a href="https://github.com/holynova/bramble-brawl" target="_blank" rel="noopener" style="display:block;color:inherit;text-align:center;padding:8px">GitHub · v1.2.0</a>' +
+      '</button><h3 class="subhead">荒野手册</h3><a href="https://github.com/holynova/bramble-brawl" target="_blank" rel="noopener" style="display:block;color:inherit;text-align:center;padding:8px">GitHub · v1.3.0</a>' +
       howTo(),
   )
   panel = 'settings'
@@ -379,10 +394,15 @@ function buildList(s: Battle) {
     tracks
       .map((t) => '<span>' + img(t.art) + '<b>' + t.name + ' · ' + t.rank + '阶</b></span>')
       .join('') +
-    '</div></section>'
+    '</div>' + [...s.arsenal.schools].map(key => {
+      const t = traditions.find(t => t.key === key)!
+      return '<p class="battle-school"><b style="color:'+t.color+'">'+t.name+'</b> · 触发 '+s.arsenal.triggers[key]+
+        ' 次'+(s.arsenal.mastery === key ? ' · '+masteries[key].name : '')+'</p>'
+    }).join('') + '</section>'
   )
 }
 function updateBuild(s: Battle, id: number) {
+  if (isMastery(id)) banner('流派专精 · ' + masteries[traditions[id-masteryStart].key].name)
   if (isEvolution(id)) banner('已觉醒 · ' + upgrades[id].name)
   const hero = s.evolutions.has(heroEvolution[s.hero]) ? upgrades[heroEvolution[s.hero]].name : '武器'
   const label = document.getElementById('hero-evo')!
@@ -435,7 +455,7 @@ function showPick() {
           const u = s.upgradeInfo(i)
           return (
             '<button class="pick ' +
-            (isEvolution(i) ? 'evolution-choice' : 'support-choice') +
+            (isEvolution(i) || isMastery(i) ? 'evolution-choice' : 'support-choice') +
             '" data-do="pick" data-i="' +
             i +
             '" style="--card:' +
@@ -691,7 +711,8 @@ document.addEventListener('click', (e) => {
       p.hero = i
       persist()
       camp()
-      if (innerWidth < 801) notify(heroes[i].desc)
+      if (innerWidth < 801 && getComputedStyle(app.querySelector('.identity p')!).display === 'none')
+        notify(heroes[i].desc)
       break
     case 'nova':
       activate()
@@ -704,11 +725,55 @@ document.addEventListener('click', (e) => {
         showSettings()
       }
       unlockAudio()
-      sound((['needle', 'arc', 'hammer'] as const)[p.hero])
+      sound(weaponSounds[p.hero])
       if (audioStatus().state === 'unavailable') notify('当前浏览器无法播放游戏音效')
       break
     case 'play':
       void start()
+      break
+    case 'builds':
+      previewBuild = Math.max(0,traditions.findIndex(t => t.hero === p.hero))
+      showBuilds()
+      break
+    case 'inspectBuild':
+      previewBuild = i
+      showBuilds()
+      break
+    case 'equipBuild': {
+      const selected = traditions[previewBuild]
+      p.hero = selected.hero
+      p.deck = [...selected.deck]
+      persist()
+      closeDialog()
+      camp()
+      notify('已装备 · ' + selected.name)
+      break
+    }
+    case 'loadouts':
+      showLoadouts()
+      break
+    case 'saveLoadout':
+      if (p.loadouts.length < 4 && !p.loadouts.some(v=>v.hero===p.hero && v.deck.join()===p.deck.join())) {
+        p.loadouts.push({hero:p.hero, deck:[...p.deck]})
+        persist()
+      }
+      showLoadouts()
+      break
+    case 'useSaved': {
+      const saved = p.loadouts[i]
+      if (!saved) break
+      p.hero = saved.hero
+      p.deck = [...saved.deck]
+      persist()
+      closeDialog()
+      camp()
+      notify('已装备收藏搭配')
+      break
+    }
+    case 'removeSaved':
+      p.loadouts.splice(i,1)
+      persist()
+      showLoadouts()
       break
     case 'deck':
       showDeck()

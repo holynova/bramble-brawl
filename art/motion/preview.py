@@ -1,20 +1,20 @@
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont,ImageOps,ImageFilter
 import argparse
-parser=argparse.ArgumentParser(description='将游戏使用的八张动作图集输出为 GIF。')
+parser=argparse.ArgumentParser(description='将游戏使用的十一套动作图集输出为 GIF。')
 parser.add_argument('output',type=Path)
 parser.add_argument('--font',default='/System/Library/Fonts/STHeiti Medium.ttc')
 args=parser.parse_args()
 art=Path(__file__).resolve().parents[2]/'public'/'art'
 target=args.output
 target.parent.mkdir(parents=True,exist_ok=True)
-bg=ImageOps.fit(Image.open(art/'quarry.webp').convert('RGB'),(920,545)).filter(ImageFilter.GaussianBlur(6)).convert('RGBA')
+bg=ImageOps.fit(Image.open(art/'quarry.webp').convert('RGB'),(920,772)).filter(ImageFilter.GaussianBlur(6)).convert('RGBA')
 bg=Image.alpha_composite(bg,Image.new('RGBA',bg.size,(17,29,48,214)))
 font=args.font
 def txt(size): return ImageFont.truetype(font,size)
 def labels(d,x,y,t,size,color,anchor='la'): d.text((x,y),t,font=txt(size),fill=color,anchor=anchor)
-names=['刺头','霹雳','铁墩','短刀地精','紫翼蝠','矿甲斗士','晶核巨像','炮芽哨兵']
-sheets=[Image.open(art/f'anim-{i}.webp').convert('RGBA') for i in range(8)]
+names=['刺头','霹雳','铁墩','回砂','烬铃','缝影','短刀地精','紫翼蝠','矿甲斗士','晶核巨像','炮芽哨兵']
+sheets=[Image.open(art/f'anim-{i}.webp').convert('RGBA') for i in [0, 1, 2, 8, 9, 10, 3, 4, 5, 6, 7]]
 # Some cells are deliberately held. Playback changes stage only at an action boundary.
 stages=[('待机',list(range(4))*2,190),('移动 · 振翅 · 破土',list(range(4,8))*3,115),('蓄力 · 命中 · 收招',list(range(8,12))*2,180),('受击',[12,13],225),('倒地 · 枯萎',[14,15,15],275)]
 frames=[]; durations=[]

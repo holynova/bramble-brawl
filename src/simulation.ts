@@ -1,3 +1,5 @@
+import { isMastery, masteries, masteryStart, traditions } from './builds.ts'
+import { Arsenal } from './arsenal.ts'
 import type { Strike } from './poses.ts'
 import {
   contracts,
@@ -67,6 +69,8 @@ export type Zone = Point & {
 }
 export type Fx = Point & {
   type:
+    | 'slash'
+    | 'crest'
     | 'shot'
     | 'spark'
     | 'bolt'
@@ -117,6 +121,7 @@ function separate(p: Point, radius: number) {
   p.y = limit(p.y, 80, WORLD.h - 80)
 }
 export class Battle {
+  arsenal: Arsenal
   hero: number
   contract: number
   deck: number[]
@@ -180,6 +185,7 @@ export class Battle {
     this.hero = profile.hero
     this.contract = profile.contract
     this.deck = [...profile.deck]
+    this.arsenal = new Arsenal(this)
     this.deck.forEach((key, slot) => {
       this.passiveTimers[key] = 2 + slot * 1.65
     })
@@ -263,6 +269,7 @@ export class Battle {
       face: e.face,
       at: this.age,
     })
+    this.arsenal.onDeath(e)
     this.kills++
     this.coins += e.elite ? 6 : this.kills % 3 === 0 ? 1 : 0
     this.effect('burst', e, e.type === 4 ? 0x9963ff : 0xffc66d, e.elite ? 24 : 14)
@@ -318,7 +325,7 @@ export class Battle {
       life: style === 9 ? 0.88 : style === 10 ? 0.55 : 1.05,
       damage,
       style,
-      pierce: style === 0 ? 2 : style === 9 ? 75 : 1,
+      pierce: style === 0 ? 2 : style === 13 ? 4 : style === 9 ? 75 : 1,
       hit: exclude,
     })
   }
@@ -386,8 +393,9 @@ export class Battle {
     const p = this.player
     const range = key === 5 ? 88 : key === 3 ? 145 : 390
     const target = point ?? this.nearby(p, range)[0]
-    if (!target && key !== 0) return false
-    const origin = key === 0 || key === 3 || key === 5 ? (point ?? p) : target!
+    const deploysWithoutTarget = key === 0 || key === 6 || key === 7 || key === 9 || key === 10
+    if (!target && !deploysWithoutTarget) return false
+    const origin = deploysWithoutTarget || key === 3 || key === 5 ? (point ?? p) : target!
     const at = { x: limit(origin.x, 85, WORLD.w - 85), y: limit(origin.y, 85, WORLD.h - 85) }
     const power = this.passivePower(key)
     this.passiveTimers[key] = this.passiveCooldown(key)
@@ -419,7 +427,7 @@ export class Battle {
       this.effect('impact', at, 2, 180)
     } else if (key === 4) {
       this.zones.push({ ...at, id: ++this.serial, type: 'storm', life: 6, radius: 105, tick: 0 })
-    } else {
+    } else if (key === 5) {
       p.shield = 3 + 0.18 * (this.passiveRanks[5] - 1)
       p.hp = Math.min(p.max, p.hp + 12 + 3 * (this.passiveRanks[5] - 1))
       this.area(p, 80, 28 * power, 0xffdf60)
@@ -429,7 +437,8 @@ export class Battle {
         e.y += ((e.y - p.y) * 48) / d
       }
       this.effect('heal', p, 0xffd45b, 3)
-    }
+    } else this.arsenal.newPassive(key, at, power)
+    this.arsenal.onPassive()
     return true
   }
   takeHit(amount: number) {
@@ -456,13 +465,14 @@ export class Battle {
   }
   choose(index: number) {
     if (this.phase !== 'upgrade' || !this.choices.includes(index)) return
+    if (isMastery(index)) this.arsenal.mastery = traditions[index - masteryStart].key
     if (isEvolution(index)) this.evolutions.add(index)
     if (index === weaponTraining) {
       this.weaponRank++
       this.damage *= 1.22
       this.rate *= 0.95
     }
-    if (index >= passiveTraining) {
+    if (index >= passiveTraining && index < passiveTraining + spells.length) {
       const key = index - passiveTraining,
         old = this.passiveCooldown(key)
       this.passiveRanks[key]++
@@ -490,6 +500,10 @@ export class Battle {
     this.player.invuln = Math.max(this.player.invuln, 0.6)
   }
   upgradeInfo(id: number) {
+    if (isMastery(id)) {
+      const tradition = traditions[id - masteryStart]
+      return { ...masteries[tradition.key], source: tradition.name + ' · 本局唯一专精', color: tradition.color }
+    }
     if (id === weaponTraining)
       return {
         name: heroes[this.hero].passive,
@@ -541,6 +555,10 @@ export class Battle {
       choices.push(draw(passives))
     const support = [0, 1, 2, 3, 4, 5]
     while (choices.length < 3) choices.push(draw(support))
+    if (this.level >= 6 && this.level % 3 === 0 && !this.arsenal.mastery) {
+      const specializations = traditions.flatMap((t, i) => this.arsenal.schools.has(t.key) ? [masteryStart + i] : [])
+      if (specializations.length) choices.splice(3 - specializations.length, specializations.length, ...specializations)
+    }
     return choices
   }
   collect(dt: number) {
@@ -593,16 +611,18 @@ export class Battle {
     }
     const length = Math.hypot(input.x, input.y)
     p.moving = length > 0.05
+    let walked = 0
     if (p.moving) {
       const before = { x: p.x, y: p.y }
       p.x += (input.x / Math.max(1, length)) * dt * this.speed
       p.y += (input.y / Math.max(1, length)) * dt * this.speed
       if (Math.abs(input.x) > 0.1) p.face = Math.sign(input.x)
       separate(p, 13)
-      const walked = distance(before, p)
+      walked = distance(before, p)
       p.moving = walked > 0.02
       p.stride += walked / 14
     }
+    this.arsenal.moved(walked, dt)
     p.fire -= dt
     p.shield -= dt
     p.invuln -= dt
@@ -649,11 +669,11 @@ export class Battle {
       this.effect('wave', p, 0xff8748, waveNames.length + 1)
       this.bossTimer = 2
     }
-    const reach = this.hero === 2 ? 98 : 281
+    const reach = [281,281,98,269,255,225][this.hero]
     if (p.fire <= 0 && !p.strike) {
-      const enemy = this.nearby(p, reach)[0]
+      const enemy = this.arsenal.weaponTarget(reach)
       if (enemy) {
-        const windup = Math.min([0.085, 0.15, 0.22][this.hero], this.rate * 0.38)
+        const windup = Math.min([0.085, 0.15, 0.22, 0.14, 0.19, 0.11][this.hero], this.rate * 0.38)
         p.strike = this.strike(p, enemy, enemy.id, windup, Math.min(0.16, this.rate * 0.3))
         p.fire = this.rate
       }
@@ -668,16 +688,21 @@ export class Battle {
       p.face = Math.cos(a.angle) < 0 ? -1 : 1
       if (!a.fired && elapsed >= a.windup) {
         a.fired = true
+        this.arsenal.onWeaponFired(a.angle)
         if (this.hero === 2) {
           this.effect('hammer', p, 0xffcb61, 70)
           const targets = this.nearby(p, 104)
           this.area(p, 104, this.damage, 0xffc168)
           for (const e of targets) {
+            this.arsenal.onWeaponHit(e)
             const d = Math.max(1, distance(p, e))
             e.x += ((e.x - p.x) * 17) / d
             e.y += ((e.y - p.y) * 17) / d
           }
           if (this.evolutions.has(Evo.fault)) this.projectile(p, a.angle, 9, this.damage * 0.8)
+        } else if (this.hero >= 3) {
+          const target = this.enemies.find(e => e.id === a.target && e.hp > 0) ?? this.arsenal.weaponTarget(reach)
+          this.arsenal.newWeapon(target, a.angle)
         } else this.shoot(p, a.angle, this.hero, this.damage)
       }
       if (elapsed >= a.windup + a.recovery) p.strike = null
@@ -708,6 +733,7 @@ export class Battle {
       }
     }
     this.turrets = this.turrets.filter((t) => t.life > 0)
+    this.arsenal.step(dt)
     const traveling = this.shots.length
     for (let i = 0; i < traveling; i++) {
       const s = this.shots[i]
@@ -723,6 +749,7 @@ export class Battle {
         )
           continue
         this.hurt(e, s.damage)
+        if ([0,1,8,9].includes(s.style)) this.arsenal.onWeaponHit(e)
         s.hit.push(e.id)
         s.pierce--
         if (s.style === 0 && s.hit.length === 1 && this.evolutions.has(Evo.fork)) {
@@ -921,6 +948,7 @@ export class Battle {
         this.area(z, z.radius, 12 * this.passivePower(4), 0xa5ff4f)
       }
       if (z.life <= 0 && z.type === 'meteor') {
+        for (const e of this.nearby(z, z.radius)) this.arsenal.scorched(e)
         this.area(z, z.radius, 97 * this.passivePower(2), 0xff8035)
         this.effect('impact', z, 0, z.radius * 1.5)
         if (this.evolutions.has(Evo.cluster)) {
@@ -939,6 +967,7 @@ export class Battle {
         }
       }
       if (z.life <= 0 && z.type === 'fragment') {
+        for (const e of this.nearby(z, z.radius)) this.arsenal.scorched(e)
         this.area(z, z.radius, 44 * this.passivePower(2), 0xffae42)
         this.effect('impact', z, 0, 85)
       }

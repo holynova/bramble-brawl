@@ -3,7 +3,8 @@ import { FRAME_SIZE, FOOTLINE, unitFrame, defeatFrame } from './poses.ts'
 import { art, Evo } from './data.ts'
 import { Battle, props, WORLD } from './simulation.ts'
 import type { Point, Fx } from './simulation.ts'
-import { sound } from './audio.ts'
+import { actorTexture } from './builds.ts'
+import { sound, weaponSounds } from './audio.ts'
 
 type Hooks = {
   ready: () => void
@@ -105,13 +106,14 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
       this.load.image('arena', art(terrain))
       const manifest = [
         'nova-wave',
+        ...Array.from({ length: 6 }, (_, i) => 'kit-' + i),
         ...Array.from({ length: 6 }, (_, i) => 'fx-' + i),
         ...Array.from({ length: 6 }, (_, i) => 'evo-fx-' + i),
         ...Array.from({ length: 4 }, (_, i) => 'prop-' + i),
         ...Array.from({ length: 4 }, (_, i) => 'loot-' + i),
       ]
-      for (const i of [sim.hero, 3, 4, 5, 6, 7]) {
-        this.load.spritesheet('anim-' + i, art('anim-' + i), {
+      for (const texture of [actorTexture(sim.hero), 'anim-3', 'anim-4', 'anim-5', 'anim-6', 'anim-7']) {
+        this.load.spritesheet(texture, art(texture), {
           frameWidth: FRAME_SIZE,
           frameHeight: FRAME_SIZE,
         })
@@ -247,6 +249,12 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
         }
         return
       }
+      if (f.type === 'slash' && f.to) {
+        const to = f.to, angle = Math.atan2(to.y - f.y, to.x - f.x)
+        const blade = this.add.image(to.x, to.y - 16, 'kit-2').setDepth(1994)
+        blade.setDisplaySize(67,53).setRotation(angle)
+        this.tweens.add({targets:blade,angle:blade.angle + 58,alpha:0,duration:220,onComplete:()=>blade.destroy()})
+      }
       if (f.type === 'hammer') {
         sound('hammer')
         if (motion && sim.age >= this.nextRecoil) {
@@ -267,7 +275,7 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
         sound('spell')
         return
       }
-      if (f.type === 'shot') sound(f.size === 7 ? 'plant' : f.size === 1 ? 'arc' : 'needle')
+      if (f.type === 'shot') sound(f.size === 7 || f.size === 12 ? 'plant' : weaponSounds[f.size] ?? 'needle')
       if (f.type === 'spark') sound('hit')
       if (f.type === 'hurt') {
         sound('hurt')
@@ -324,7 +332,7 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
       const hero = this.actor(
         active,
         'hero',
-        'anim-' + sim.hero,
+        actorTexture(sim.hero),
         p.x,
         p.y,
         heroHeight,
@@ -380,6 +388,13 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
             y = e.y + Math.sin(e.dive.angle) * e.dive.range
           this.shadows.lineStyle(15, 0xe74b7a, 0.26).lineBetween(e.x, e.y, x, y)
           this.shadows.lineStyle(2, 0xffc0bb, 0.95).lineBetween(e.x, e.y, x, y)
+        }
+        if (sim.arsenal.marks.has(e.id)) {
+          const y = e.y - h - 13
+          G.lineStyle(2, 0xff8bdc, 0.96).strokePoints([
+            {x:e.x - 10,y:y-3},{x:e.x - 4,y:y+5},{x:e.x,y},{x:e.x + 4,y:y+5},{x:e.x + 10,y:y-3}
+          ])
+          G.fillStyle(0xfcc3ef,1).fillCircle(e.x,y,2.4)
         }
         if (frozen) {
           G.fillStyle(0x93f6ff, 0.33).fillTriangle(e.x - 15, e.y, e.x - 12, e.y - 25, e.x + 3, e.y - 2)
@@ -452,6 +467,12 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
         if (s.style === 1) {
           G.lineStyle(6, 0xab7cff, 0.62).lineBetween(x - s.vx * 0.04, y - s.vy * 0.04, x, y)
           this.overlay(active, 's' + s.id, 'fx-1', x, y, 22, 1850).setRotation(t * 5)
+        } else if (s.style === 13 || s.style === 12) {
+          const bee = s.style === 12
+          const color = bee ? 0xffb133 : 0x68f5da
+          G.lineStyle(bee ? 4 : 6,color,0.62).lineBetween(x-s.vx*0.045,y-s.vy*0.045,x,y)
+          if (bee) G.fillStyle(0xffdf83,1).fillCircle(x,y,3.5)
+          else this.overlay(active,'s'+s.id,'kit-0',x,y,23,1850).setRotation(t*11)
         } else if (s.style === 9) {
           const angle = Math.atan2(s.vy, s.vx),
             dx = Math.cos(angle),
@@ -480,6 +501,49 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
             const color = s.style === 8 ? 0xb6ff51 : 0xffcf49
             G.lineStyle(3, color, 0.9).lineBetween(x - s.vx * 0.03, y - s.vy * 0.03, x, y)
           }
+        }
+      }
+      for (const d of sim.arsenal.devices) {
+        const id = 'kit' + d.id
+        if (d.kind === 'pool' || d.kind === 'ember') {
+          const opacity = Math.min(1,(d.duration-d.age)*3)
+          this.shadows.fillStyle(0xc83f25,0.26*opacity).fillEllipse(d.x,d.y,d.radius*2,d.radius*1.48)
+          this.shadows.lineStyle(2,0xffae44,0.86*opacity).strokeEllipse(d.x,d.y,d.radius*1.77,d.radius*1.32)
+          for (let k=0;k<3;k++) {
+            const a=k*2.094+d.id, x=d.x+Math.cos(a)*d.radius*0.45, y=d.y+Math.sin(a)*d.radius*0.37
+            const flame=11+(motion ? Math.sin(t*10+k)*3 : 0)
+            this.shadows.fillStyle(0xffb54b,0.76*opacity).fillTriangle(x-4,y,x+3,y,x+2,y-flame)
+          }
+        } else if (d.kind === 'fence') {
+          const x = Math.cos(d.angle)*d.radius, y=Math.sin(d.angle)*d.radius
+          this.overlay(active,id+'a','kit-5',d.x-x,d.y-y-8,25,d.y-y+1)
+          this.overlay(active,id+'b','kit-5',d.x+x,d.y+y-8,25,d.y+y+1)
+          const wire = Array.from({length:9},(_,j) => {
+            const fraction=j/4-1, bend=j%2 ? (motion ? Math.sin(t*16+j)*5 : 3) : 0
+            return {x:d.x+x*fraction - Math.sin(d.angle)*bend, y:d.y+y*fraction-11+Math.cos(d.angle)*bend}
+          })
+          G.lineStyle(6,0x7756ee,0.63).strokePoints(wire)
+          G.lineStyle(2,0xbfefff,0.96).strokePoints(wire)
+        } else if (d.kind === 'mine') {
+          const w=d.variant ? 22 : 34
+          this.overlay(active,id,'kit-4',d.x,d.y-6,w,d.y+1)
+          this.shadows.lineStyle(1.6,0x89ebff,d.age<0.48 ? 0.24 : 0.7).strokeEllipse(d.x,d.y,w*1.36,w*0.77)
+        } else if (d.kind === 'sentry') {
+          this.actor(active,id,'anim-7',d.x,d.y,34,1,0,d.age<0.26 ? 4+Math.min(3,Math.floor(d.age/0.065)) : d.tick>0.56 ? 10 : 0)
+        } else if (d.kind === 'flask') {
+          const progress=Math.min(1,d.age/d.duration)
+          const origin = d.origin ?? p
+          const x = origin.x + (d.x - origin.x) * progress
+          const y = origin.y + (d.y - origin.y) * progress - 22 * (1-progress) - 61 * Math.sin(progress*Math.PI)
+          this.overlay(active,id,'kit-1',x,y,28,1860).setRotation(progress*4)
+        } else if (d.kind === 'moon' || d.kind === 'orbit') {
+          this.overlay(active,id,'kit-0',d.x,d.y-15,d.kind==='moon'?36:28,1850).setRotation(t*(d.variant?-13:13)+d.angle)
+          if (d.kind==='orbit') {
+            this.shadows.lineStyle(1,0x65f2c5,0.22).strokeCircle(p.x,p.y,d.radius)
+          }
+        } else if (d.kind === 'bee') {
+          this.shadows.fillStyle(0x52293b,0.23).fillEllipse(d.x,d.y,15,5)
+          this.overlay(active,id,'kit-3',d.x,d.y-25,32,d.y+30).setFlipX(Math.cos(d.age*2.25+d.angle)<0)
         }
       }
       for (const z of sim.zones) {
@@ -565,6 +629,14 @@ export function mountBattle(root: HTMLElement, sim: Battle, hooks: Hooks, motion
             for (const pt of points.slice(1)) g.lineTo(pt.x, pt.y)
             g.strokePath()
           }
+        } else if (f.type === 'crest') {
+          g.lineStyle(2.5,f.color,a).strokeEllipse(f.x,f.y-4,22+42*u,12+27*u)
+          for(let j=0;j<4;j++){
+            const angle=j*Math.PI/2+0.25
+            g.fillStyle(f.color,a).fillCircle(f.x+Math.cos(angle)*(12+20*u),f.y-4+Math.sin(angle)*(9+11*u),2.5)
+          }
+        } else if (f.type === 'slash' && f.to) {
+          g.lineStyle(5,f.color,a*0.72).lineBetween(f.x,f.y-18,f.to.x,f.to.y-20)
         } else if (f.type === 'spark' || f.type === 'guard') {
           const r = (f.type === 'guard' ? 26 : 9 + Math.min(10, f.size * 0.1)) * (0.6 + 0.7 * u)
           const cy = f.y - (f.type === 'guard' ? 24 : 21)

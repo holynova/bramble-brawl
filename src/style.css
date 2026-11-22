@@ -1059,7 +1059,10 @@ button {
   border: 2px solid #c49d60;
   border-radius: 6px;
   padding: 7px 14px;
-  white-space: nowrap;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+  white-space: normal;
 }
 #toast.show {
   opacity: 1;
@@ -1896,3 +1899,86 @@ button {
 .sound-check {margin-top:9px;}.wave-time span {white-space:nowrap;}.card-face .drop-cost{font-size:12px;min-width:25px;}
 @media(max-width:420px){.passive-tray{bottom:max(11px,env(safe-area-inset-bottom))}.passive-tile{width:30px;height:31px}.nova-button{right:max(13px,env(safe-area-inset-right));bottom:max(13px,env(safe-area-inset-bottom))}.wave-time span{letter-spacing:0;}.vitals #hero-evo{display:block;font-size:10px;margin:0}.vitals #hero-evo[hidden]{display:none;}}
 @media(max-height:470px){.nova-disc{width:55px}.nova-button{bottom:8px}.passive-tray{bottom:6px}.passive-tile{width:27px;height:27px}}
+
+.roster-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:9px; }
+.roster-head h3 { margin:0; }
+.guide-entry { border:2px solid #402a23; border-radius:7px; background:linear-gradient(#ffdc91,#deb16b); color:#382528; padding:5px 11px; font-weight:900; box-shadow:inset 0 1px #fff3c1,0 2px #462f25; }
+.tradition-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+.tradition-tab { position:relative; display:flex; align-items:center; gap:6px; padding:4px; border:2px solid #172435; border-radius:8px; background:#28374c; color:#dde6ec; text-align:left; }
+.tradition-tab img { width:32px; aspect-ratio:1; border-radius:4px; }
+.tradition-tab b { font-size:13px; }
+.tradition-tab[aria-pressed="true"] { border-color:var(--tone); color:#fff6df; background:#38465a; }
+.tradition-feature { display:flex; align-items:center; isolation:isolate; position:relative; overflow:hidden; min-height:155px; margin-top:12px; border:2px solid #172437; border-radius:11px; background:radial-gradient(ellipse at 20% 76%,color-mix(in srgb,var(--tone) 45%,#152335),transparent 55%),linear-gradient(120deg,#273c4d,#192737); }
+.tradition-art { align-self:stretch; width:40%; flex-shrink:0; position:relative; }
+.tradition-art img { position:absolute; width:110%; height:111%; left:-5%; bottom:-3%; object-fit:contain; filter:drop-shadow(0 4px 3px #10203480); }
+.tradition-heading { padding:14px 12px 14px 4px; }
+.tradition-heading small { color:var(--tone); font-weight:850; }
+.tradition-heading h3 { margin:3px 0 5px; color:#fff7df; font-size:clamp(24px,5vw,34px); line-height:1.1; }
+.tradition-heading p,.build-rules dd { margin:0; font-size:14px; line-height:1.45; color:#e5e9ec; }
+.build-slots { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px; }
+.build-slots span { display:flex; align-items:center; gap:7px; border-radius:6px; background:#203147; padding:4px; font-size:13px; }
+.build-slots img,.detail-name img { width:33px; height:33px; border-radius:4px; object-fit:cover; }
+.build-rules { display:grid; grid-template-columns:auto 1fr; gap:6px 10px; margin:12px 1px; }
+.build-rules dt { color:#ffde86; font-size:13px; font-weight:850; }
+.apply-build { width:100%; }
+.custom-build { background:transparent; color:#a6deff; font-weight:800; padding:5px 7px; }
+.guide-sheet .sheet-body > .custom-build { display:block; margin:5px auto 0; }
+.deck-summary { padding:8px 12px; border-radius:8px; background:#1c2c40; }
+.deck-summary>div:first-child,.library-title { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.deck-summary p,.no-school { font-size:12px; color:#becbd5; }
+.school-chip { display:inline-flex; padding:2px 7px; margin:4px 4px 0 0; border:1px solid color-mix(in srgb,var(--tone) 50%,#293749); border-radius:5px; background:color-mix(in srgb,var(--tone) 12%,#192334); color:var(--tone); font-size:12px; font-weight:850; }
+.library-title { margin:12px 0 6px; }
+.library-title span { color:#b6cadb; font-size:12px; }
+.detail-name { display:flex; align-items:center; gap:9px; }
+.detail-name img { width:46px; height:46px; }
+.swap-list { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:8px; }
+.swap-list button { display:grid; gap:2px; padding:5px 3px; background:#36495f; border:1px solid #68829b; color:#fff; border-radius:5px; }
+.swap-list small { color:#c3d9e9; font-size:11px; }
+.battle-school { font-size:13px; margin:6px 0 0; color:#c8d6dd; }
+@media (min-width:801px) {
+  .portrait { width:clamp(46px,4.35vw,67px); }
+  .portraits { gap:6px; }
+}
+@media (max-width:800px) and (orientation:portrait) {
+  .roster { right:var(--pad); }
+  .portraits { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; }
+  .portrait { width:100%; max-width:68px; }
+  .roster-head { margin-bottom:6px; }
+  .guide-entry { padding:4px 9px; font-size:12px; }
+}
+@media (max-height:500px) and (orientation:landscape) {
+  .roster { max-width:41%; }
+  .portraits { gap:4px; }
+  .portrait { width:min(5.5vw,49px); }
+  .roster-head { margin-bottom:4px; }
+  .guide-entry { padding:2px 6px; font-size:11px; }
+}
+@media (max-width:420px) {
+  .tradition-tabs { gap:4px; }
+  .tradition-tab { gap:3px; }
+  .tradition-tab img { width:25px; }
+  .tradition-tab b { font-size:12px; }
+  .tradition-feature { min-height:141px; }
+  .build-slots img { width:28px; height:28px; }
+}
+.guide-links { display:flex; justify-content:center; gap:12px; margin-top:5px; }
+.saved-row { display:flex; gap:8px; align-items:center; margin-top:10px; padding:7px; border:1px solid #4e6178; border-radius:7px; background:#213146; }
+.saved-row > img { width:39px; height:39px; border-radius:6px; }
+.saved-row > div { flex:1; }
+.saved-row small { display:block; color:#bfcfdc; font-size:12px; }
+.saved-row .mini { min-height:33px; padding:3px 8px; }
+.saved-strip { display:flex; gap:5px; margin:8px 0; }
+.saved-strip img { width:41px; aspect-ratio:1; border-radius:6px; }
+
+
+@media (max-width: 800px) and (min-height: 750px) and (orientation: portrait) {
+  .identity p {
+    display: block;
+    margin: 7px 0 0;
+    max-width: min(58vw, 18em);
+    color: #fff6df;
+    font-size: 14px;
+    line-height: 1.38;
+    text-shadow: 0 1px 2px #322435, 0 0 4px #30212b, 0 0 8px #392431;
+  }
+}

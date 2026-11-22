@@ -12,6 +12,10 @@ Collect green crystals to level up. Choose one of three cards at each level. Wea
 
 Drag anywhere to move or use WASD and arrow keys. Space triggers Shockwave, and Escape pauses. Hiding the tab also pauses the fight. Open camp settings to adjust music and effects.
 
+## Build a loadout
+
+Choose among six heroes and twelve passives. The camp guide previews six specializations, their recommended upgrade order and how to move in battle. Mark enemies for a scythe harvest, lead them across a fire trail, or stand still to deploy a turret. Save up to four custom loadouts on this device. Earlier saves keep their heroes, gold and equipment.
+
 ## Run and publish
 
 Use Node.js 22.13 or newer. Run `npm ci`, `npm test` and `npm run dev`. The production command is `npm run build`. Cloudflare Pages builds `main` after `git push origin main` and serves `dist/`. Run `npm run standalone` for a single-file edition.

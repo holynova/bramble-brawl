@@ -45,6 +45,9 @@ const effects = {
     bell(414, 254, 0.52, 4),
     snap(2010, 540, 80, 0.38, 16),
   ],
+  moon: [snap(3400, 820, 128, 0.56), bell(1270, 125, 0.33, 29), voice('spark', 580, 920, 70, 0.38, 20)],
+  flask: [bell(1320, 80, 0.47), snap(1500, 330, 165, 0.59, 29), thump(270, 113, 130, 0.5, 43)],
+  scythe: [voice('spark', 870, 270, 140, 0.67), snap(4200, 1230, 72, 0.5, 10), bell(690, 166, 0.38, 35)],
   plant: [voice('round', 680, 125, 108, 0.93), voice('reed', 340, 740, 51, 0.33, 5), snap(1400, 500, 36, 0.39)],
   hit: [snap(2150, 530, 49, 0.84), thump(295, 124, 81, 0.67), bell(836, 51, 0.16, 9)],
   hurt: [
@@ -94,12 +97,16 @@ const effects = {
   ],
 } satisfies Record<string, Layer[]>
 type Effect = keyof typeof effects
+export const weaponSounds = ['needle','arc','hammer','moon','flask','scythe'] as const
 export type SoundKey = Effect | 'shot'
 type SoundLimits = { gap: number; priority: number; level: number }
 const limits: Record<Effect, SoundLimits> = {
   needle: { gap: 0.073, priority: 2, level: 0.58 },
   arc: { gap: 0.09, priority: 2, level: 0.7 },
   hammer: { gap: 0.1, priority: 2, level: 0.9 },
+  moon: { gap: 0.10, priority: 2, level: 0.69 },
+  flask: { gap: 0.10, priority: 2, level: 0.70 },
+  scythe: { gap: 0.10, priority: 2, level: 0.67 },
   plant: { gap: 0.09, priority: 1, level: 0.55 },
   hit: { gap: 0.063, priority: 1, level: 0.47 },
   hurt: { gap: 0.23, priority: 4, level: 0.82 },

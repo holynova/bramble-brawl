@@ -35,6 +35,42 @@ export const heroes = [
     desc: '矿锤震开身边的敌人，在怪潮最密处开出一条路。',
     passive: '震地重击',
   },
+  {
+    name: '回砂',
+    en: 'DUNE JACKAL',
+    role: '飞刃信使',
+    color: '#68e7d1',
+    hp: 119,
+    speed: 192,
+    power: 31,
+    rate: 0.86,
+    desc: '月刃飞出后追着自己折返。横移能把回程刃线拉过另一排敌人。',
+    passive: '逐风回镖',
+  },
+  {
+    name: '烬铃',
+    en: 'CINDER BREW',
+    role: '熔火药师',
+    color: '#ff9956',
+    hp: 148,
+    speed: 163,
+    power: 39,
+    rate: 1.04,
+    desc: '向敌群抛出火药瓶。把追兵带回燃烧区，能持续灼伤整队敌人。',
+    passive: '熔浆投瓶',
+  },
+  {
+    name: '缝影',
+    en: 'VESPER MOTH',
+    role: '绯镰猎手',
+    color: '#f399d8',
+    hp: 116,
+    speed: 183,
+    power: 35,
+    rate: 0.72,
+    desc: '影镰优先追斩附近伤势最重的目标，对残血敌人造成重击。',
+    passive: '绯镰追魂',
+  },
 ]
 export const spells = [
   {
@@ -85,6 +121,54 @@ export const spells = [
     type: '守护',
     desc: '敌人逼近时回复 12 点生命，在接下来 3 秒抵挡伤害，并弹退贴身敌人。',
   },
+  {
+    name: '月牙刃轮',
+    short: '刃轮',
+    cooldown: 11,
+    color: '#67dfcd',
+    type: '环绕',
+    desc: '双刃沿身边转动四秒。贴着怪群边缘走位，让刃尖反复扫中敌人。',
+  },
+  {
+    name: '余烬足迹',
+    short: '火径',
+    cooldown: 12,
+    color: '#ff9951',
+    type: '地形',
+    desc: '移动时在身后留下一串燃烧足迹，持续铺路四秒。引诱追兵踩过火径。',
+  },
+  {
+    name: '蚀魂印记',
+    short: '魂印',
+    cooldown: 9,
+    color: '#e78bd9',
+    type: '诅咒',
+    desc: '标记附近三名敌人，在六秒内反复侵蚀生命。',
+  },
+  {
+    name: '巡游蜂',
+    short: '巡蜂',
+    cooldown: 13,
+    color: '#ffe171',
+    type: '召唤',
+    desc: '放出一只跟随英雄的机械蜂，八秒内自动向附近敌人发射蜂针。',
+  },
+  {
+    name: '冻土矿雷',
+    short: '冰雷',
+    cooldown: 10,
+    color: '#80dfff',
+    type: '陷阱',
+    desc: '在脚下布雷，短暂布防后受敌人接近触发，冻结爆心周围的敌人。',
+  },
+  {
+    name: '鸣弧线圈',
+    short: '电栅',
+    cooldown: 12,
+    color: '#aa9bff',
+    type: '电场',
+    desc: '在面前横设一段电栅，持续五秒。横穿电线的敌人会反复受到电击。',
+  },
 ]
 export const gears = [
   { name: '矿工拳套', desc: '每级提升 8% 基础攻击', color: '#ff9258' },
@@ -103,8 +187,8 @@ export const nova = {
   radius: 146,
   desc: '击退身边的敌人，打断普通怪的攻击，并获得短暂保护。',
 }
-export const weaponTraining = 15
-export const passiveTraining = 16
+export const weaponTraining = 24
+export const passiveTraining = 25
 export const maxRank = 5
 export const awakeningRank = 3
 export const isEvolution = (id: number) => id >= 6 && id < weaponTraining
@@ -118,9 +202,11 @@ export const Evo = {
   shatter: 12,
   vortex: 13,
   thorns: 14,
+  moon: 15, crucible: 16, reaper: 17,
+  orbit: 18, rekindle: 19, plague: 20, flight: 21, ridge: 22, overload: 23,
 } as const
-export const heroEvolution = [Evo.fork, Evo.beacon, Evo.fault]
-export const spellEvolution = [Evo.twins, Evo.echo, Evo.cluster, Evo.shatter, Evo.vortex, Evo.thorns]
+export const heroEvolution = [Evo.fork, Evo.beacon, Evo.fault, Evo.moon, Evo.crucible, Evo.reaper]
+export const spellEvolution = [Evo.twins, Evo.echo, Evo.cluster, Evo.shatter, Evo.vortex, Evo.thorns, Evo.orbit, Evo.rekindle, Evo.plague, Evo.flight, Evo.ridge, Evo.overload]
 export const upgrades = [
   { name: '重装弹芯', desc: '基础伤害 +22%', art: 'gear-0', color: '#ff9f55', source: '攻击强化' },
   { name: '疾速扳机', desc: '普攻间隔缩短 12%', art: 'spell-1', color: '#ae92ff', source: '攻速强化' },
@@ -209,13 +295,82 @@ export const upgrades = [
     color: '#ffdc73',
     source: '金棘护盾 · 进化',
   },
+  {
+    name: '双月回锋',
+    desc: '向两侧同时掷出月刃，两道返程都追向英雄，交叉切开怪群。',
+    art: 'evo-9',
+    color: '#67dfcd',
+    source: '回砂 · 回镖觉醒',
+  },
+  {
+    name: '熔心坩埚',
+    desc: '每片药瓶火池耗尽时喷发，震伤范围外沿的敌人。',
+    art: 'evo-10',
+    color: '#ff9951',
+    source: '烬铃 · 药瓶觉醒',
+  },
+  {
+    name: '绯影换命',
+    desc: '影镰击杀目标后，绯影跃向附近另一名伤敌继续追斩。',
+    art: 'evo-11',
+    color: '#e78bd9',
+    source: '缝影 · 影镰觉醒',
+  },
+  {
+    name: '双轨刃阵',
+    desc: '额外展开一圈反向旋转的远轨月刃，同时切割内外两圈。',
+    art: 'evo-12',
+    color: '#67dfcd',
+    source: '月牙刃轮 · 进化',
+  },
+  {
+    name: '烬路复燃',
+    desc: '每道足迹熄灭时再爆一次，击中火径两侧的追兵。',
+    art: 'evo-13',
+    color: '#ff9951',
+    source: '余烬足迹 · 进化',
+  },
+  {
+    name: '疫印接力',
+    desc: '带印敌人死亡时，印记会传给邻近的另一名敌人。',
+    art: 'evo-14',
+    color: '#e78bd9',
+    source: '蚀魂印记 · 进化',
+  },
+  {
+    name: '蜂群护航',
+    desc: '派出第二只机械蜂，两只蜂从不同方位跟随、交错发射蜂针。',
+    art: 'evo-15',
+    color: '#ffe171',
+    source: '巡游蜂 · 进化',
+  },
+  {
+    name: '冰脊连营',
+    desc: '主雷爆开后，两侧各生出一枚可独立触发的次生冰雷。',
+    art: 'evo-16',
+    color: '#80dfff',
+    source: '冻土矿雷 · 进化',
+  },
+  {
+    name: '雷弧过载',
+    desc: '电栅命中时，向电线外的一名邻敌再放出一道电弧。',
+    art: 'evo-17',
+    color: '#aa9bff',
+    source: '鸣弧线圈 · 进化',
+  },
 ]
 export const art = (key: string) =>
   (globalThis as { brambleArt?: Record<string, string> }).brambleArt?.[key] ?? './art/' + key + '.webp'
 export const clock = (value: number) =>
   [Math.floor(value / 60), Math.floor(value % 60)].map((n) => String(n).padStart(2, '0')).join(':')
 export const gearCost = (level: number) => 20 + level * 25
+export type Loadout = { hero: number; deck: number[] }
+function validDeck(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length === 3 && new Set(value).size === 3 &&
+    value.every(k => Number.isInteger(k) && k >= 0 && k < spells.length)
+}
 export type Profile = {
+  loadouts: Loadout[]
   hero: number
   deck: number[]
   gear: number[]
@@ -233,6 +388,7 @@ export type Profile = {
 export function freshProfile(): Profile {
   return {
     hero: 0,
+    loadouts: [],
     deck: [0, 1, 2],
     gear: [0, 0, 0],
     coins: 0,
@@ -257,16 +413,15 @@ export function readProfile(): Profile {
       typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(max, Math.floor(n))) : 0
     const p = { ...def }
     for (const k of ['coins', 'trophies', 'wins', 'plays', 'best'] as const) p[k] = int(raw[k], 1e9)
-    p.hero = int(raw.hero, 2)
+    p.hero = int(raw.hero, heroes.length - 1)
     p.unlocked = int(raw.unlocked, 2)
     p.contract = int(raw.contract, p.unlocked)
-    if (
-      Array.isArray(raw.deck) &&
-      raw.deck.length === 3 &&
-      new Set(raw.deck).size === 3 &&
-      raw.deck.every((i: unknown) => typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < 6)
-    )
-      p.deck = raw.deck
+    if (validDeck(raw.deck)) p.deck = raw.deck
+    if (Array.isArray(raw.loadouts)) {
+      p.loadouts = raw.loadouts.filter((item: Loadout | null) =>
+        item && Number.isInteger(item.hero) && item.hero >= 0 && item.hero < heroes.length && validDeck(item.deck)
+      ).slice(0, 4)
+    }
     if (Array.isArray(raw.gear) && raw.gear.length === 3)
       p.gear = raw.gear.map((n: unknown) => int(n, 5))
     p.music = raw.music === undefined ? raw.audio !== false : raw.music !== false
