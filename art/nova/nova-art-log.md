@@ -1,0 +1,13 @@
+# 震荡爆发
+
+内置 ImageGen 分别生成深靛底技能图标与金橙透明冲击波。两张原画完整保留构图，均没有裁切。脚本将它们缩至 192×192 和 256×256，并去除冲击波外围极淡的透明雾。检查了透明圆环中心 80×80 像素区域，并按实际手机图标尺寸 60×60 出小样。
+
+原图文件名与路径见同目录 `rebuild.py`。用支持 WebP 的 Pillow 运行 `python3 rebuild.py` 可在脚本目录重建。将 nova.webp 和 nova-wave.webp 复制到 public/art/，size-check.png 供本地检查。
+
+## 技能图标提示词
+
+Use case: stylized-concept. One edge-to-edge square 1:1 original ability icon, 3D sculpted and painted premium colorful mobile fantasy arena brawler collectible art. This is the active skill "Seismic Nova" for a cactus desert goldmine survivor arena. Strictly no text, numbers, letters, borders, logos, glyphs, frame, UI, coin or square rim. Deep velvety midnight-indigo ground and purple vignette for contrast. A mighty chunky orange-bronze mallet hammer head strikes in the center of a circular amber-and-white seismic pressure wave bursting horizontally outwards. Forceful gesture, bold concentric ruptured gold ring around the hit, four floating dark indigo stone wedges flung from impact with electric turquoise highlight edges, slanted hammer shaft upper right. Heroic, punchy, high saturation, subtle volumetric bevels, hard graphic edges, golden rim-light, unmistakable visually simple central icon silhouette even at 48px. One dominant hammer head and ONE broad stylized ring, sparse details, strong separation. Icon art fully bleeds to all four square edges, close cropped dynamic action and beautiful stylized metallic material.
+
+## 冲击波提示词
+
+Use case: production VFX sprite for top-down stylized premium cartoon 3D mobile gold-mine arena. One square true TRANSPARENT RGBA image. An isolated circular expanding golden-orange shockwave ring seen almost straight from above (near circle, slight compression to 88% height) in the instant AFTER a hammer impact. IMPORTANT clean large TRANSPARENT hollow center THROUGH WHICH THE PLAYER AND GROUND ARE FULLY VISIBLE: nothing in the middle inside 72% diameter; no impact star in center, no hammer, no crater, no floor, no background haze. A bright orange and amber segmented pressure wave arcs around the PERIMETER ONLY, gleaming white-gold edge highlights, 5 chunky dark ochre flying mineral chips with icy blue or white specular bevel highlights at the circle's outer rim. Ring has dynamic broken segments plus tiny outward burst accents, heavy on the contour but no flattening plate. It must read at 60 pixels and also at 240. Toylike sculpted geometry and clean silhouette matching a bright fantasy cactus western gold mine game. Straight from above, centered object only, ample transparent 8% margins on all sides; no colored backdrop, terrain, dropshadow underneath, letters, numbers, badges, logos or other objects. Everything outside the ring and the entire center is transparent.
